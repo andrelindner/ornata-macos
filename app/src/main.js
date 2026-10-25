@@ -18,7 +18,7 @@
 // only over IPC (see preload.js).
 
 const {
-  app, BrowserWindow, Tray, Menu, ipcMain, dialog, nativeImage, shell, powerMonitor,
+  app, BrowserWindow, Tray, Menu, ipcMain, dialog, nativeImage, nativeTheme, shell, powerMonitor,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -58,6 +58,7 @@ function migrateLegacySettings() {
 const engine = require(corePath('engine', 'engine.js'));
 const { layoutPayload } = require(corePath('engine', 'layout.js'));
 const scenes = require(corePath('engine', 'scenes.js'));
+const backupStore = require(corePath('engine', 'backup.js'));
 
 const REPO_URL = 'https://github.com/andrelindner/ornata-macos';
 
@@ -89,18 +90,32 @@ function readDefaultProfile() {
 }
 
 // --- app settings (persisted in userData/settings.json) ---------------------
-// startMinimized: launch with the window hidden (menu-bar only) — pair it with
-//                 "Start at Login" so profiles are active right after boot.
-// applyOnLaunch:  apply the default profile automatically on every launch.
-// backupDir:      folder that receives a copy of every saved color profile.
-// reapplyOnWake:  re-send the current profile after wake from sleep / unlock.
-// startupColor:   the color last stored in the keyboard's on-board memory
-//                 (display only — the keyboard can't be read back).
+// startMinimized:      launch with the window hidden (menu-bar only) — pair it
+//                      with "Start at login" so profiles are active after boot.
+// applyOnLaunch:       apply the default profile automatically on every launch.
+// reapplyOnWake:       re-send the current profile after wake from sleep / unlock.
+// startupColor:        the color last stored in the keyboard's on-board memory
+//                      (display only — the keyboard can't be read back).
+// backupDir:           folder that receives the backup (see engine/backup.js).
+// autoBackup:          back up automatically after every change.
+// backupRetentionDays: how long profiles deleted locally stay in the backup
+//                      (0 = forever).
+// lastBackupAt:        ISO time of the last successful backup.
 const DEFAULT_CONFIG = {
-  startMinimized: false, applyOnLaunch: true, backupDir: null,
-  reapplyOnWake: true, startupColor: null,
+  startMinimized: false, applyOnLaunch: true, reapplyOnWake: true, startupColor: null,
+  backupDir: null, autoBackup: true, backupRetentionDays: 30, lastBackupAt: null,
 };
 let config = { ...DEFAULT_CONFIG };
+
+// Settings the settings window may change, with their type. backupDir,
+// startupColor and lastBackupAt have their own actions.
+const EDITABLE = {
+  startMinimized: 'boolean', applyOnLaunch: 'boolean', reapplyOnWake: 'boolean',
+  autoBackup: 'boolean', backupRetentionDays: 'number',
+};
+// Settings a backup carries. The backup folder is machine-specific, and the
+// startup color describes the keyboard's memory rather than a preference.
+const BACKED_UP = Object.keys(EDITABLE);
 
 function configPath() {
   return path.join(app.getPath('userData'), 'settings.json');
@@ -117,24 +132,58 @@ function saveConfig() {
   } catch (_) { /* non-fatal */ }
 }
 
-// Copy one saved profile into the backup folder (if one is configured).
-function backupProfile(fullPath) {
-  if (!config.backupDir) return;
-  try {
-    fs.mkdirSync(config.backupDir, { recursive: true });
-    fs.copyFileSync(fullPath, path.join(config.backupDir, path.basename(fullPath)));
-  } catch (_) { /* backup is best-effort */ }
+function pick(obj, keys) {
+  const out = {};
+  for (const k of keys) if (obj[k] !== undefined) out[k] = obj[k];
+  return out;
 }
 
-// Copy every saved profile into the backup folder. Returns the count.
-function backupAllProfiles() {
-  if (!config.backupDir) return 0;
-  fs.mkdirSync(config.backupDir, { recursive: true });
-  const files = scenes.listScenes(profilesDir());
-  for (const f of files) {
-    fs.copyFileSync(path.join(profilesDir(), f), path.join(config.backupDir, f));
-  }
-  return files.length;
+// --- backup -----------------------------------------------------------------
+const ICLOUD_ROOT = path.join(app.getPath('home'), 'Library', 'Mobile Documents', 'com~apple~CloudDocs');
+
+function runBackup() {
+  const report = backupStore.backup(config.backupDir, {
+    profilesDir: profilesDir(),
+    settings: pick(config, BACKED_UP),
+    appVersion: app.getVersion(),
+    retentionDays: config.backupRetentionDays,
+  });
+  config.lastBackupAt = new Date().toISOString();
+  saveConfig();
+  notifySettingsChanged();
+  return report;
+}
+
+function plural(n, one, many) {
+  return n === 1 ? one : `${n} ${many}`;
+}
+
+function backupSummary(r) {
+  const parts = [plural(r.saved.length, '1 profile backed up', 'profiles backed up'), 'settings'];
+  if (r.retired.length) parts.push(`${r.retired.length} moved to the grace period`);
+  if (r.purged.length) parts.push(`${r.purged.length} removed for good`);
+  if (r.revived.length) parts.push(`${r.revived.length} came back`);
+  return parts.join(' · ');
+}
+
+function restoreSummary(r) {
+  const parts = [plural(r.restored.length, '1 profile restored', 'profiles restored')];
+  if (r.revived.length) parts.push(`${r.revived.length} brought back from the grace period`);
+  if (r.settings) parts.push('settings');
+  if (r.kept.length) parts.push(`${r.kept.length} kept (already present)`);
+  if (r.failed.length) parts.push(`${r.failed.length} failed: ${r.failed.map((f) => f.name).join(', ')}`);
+  return parts.join(' · ');
+}
+
+// After a change, back up in the background — debounced, best-effort.
+// Errors show up when the user presses "Back Up Now".
+let autoBackupTimer = null;
+function scheduleAutoBackup() {
+  if (!config.backupDir || !config.autoBackup) return;
+  clearTimeout(autoBackupTimer);
+  autoBackupTimer = setTimeout(() => {
+    try { runBackup(); } catch (_) { /* see above */ }
+  }, 1500);
 }
 
 // The scene most recently applied to the keyboard (by launch auto-apply, the
@@ -143,7 +192,7 @@ function backupAllProfiles() {
 let currentScene = null; // { name: string|null, scene: object }
 function setCurrentScene(name, scene) {
   currentScene = { name: name || null, scene };
-  refreshMenus(); // the startup-color menu shows the profile's main color
+  notifySettingsChanged(); // the startup color offers the profile's main color
 }
 
 // Send a scene to the keyboard and remember it as the current one.
@@ -167,6 +216,7 @@ function guard(fn) {
 
 // --- IPC --------------------------------------------------------------------
 function registerIpc() {
+  ipcMain.handle('appInfo', () => ({ name: app.name, version: app.getVersion() }));
   ipcMain.handle('layout', () => layoutPayload());
   ipcMain.handle('status', () => engine.probe());
   ipcMain.handle('mouseStatus', () => engine.probeMouse());
@@ -196,7 +246,7 @@ function registerIpc() {
     try {
       const full = scenes.scenePath(profilesDir(), name);
       scenes.writeScene(full, scene);
-      backupProfile(full); // mirror into the configured backup folder
+      scheduleAutoBackup();
       return { ok: true, name: path.basename(full) };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -236,6 +286,161 @@ function registerIpc() {
       return { ok: false, error: e.message };
     }
   });
+
+  ipcMain.handle('openSettings', (_e, tab) => showSettings(tab));
+  registerSettingsIpc();
+}
+
+// --- settings window IPC ----------------------------------------------------
+function settingsState() {
+  const dir = config.backupDir;
+  return {
+    name: app.name,
+    version: app.getVersion(),
+    home: app.getPath('home'),
+    config: { ...config },
+    loginItem: loginItemState(),
+    profilesDir: profilesDir(),
+    backup: {
+      dir,
+      reachable: !!dir && fs.existsSync(dir),
+      inICloud: !!dir && dir.startsWith(ICLOUD_ROOT + path.sep),
+    },
+    startup: {
+      stored: config.startupColor,
+      mainColor: currentScene ? engine.dominantColor(currentScene.scene) : null,
+      presets: STARTUP_PRESETS,
+    },
+    icloud: {
+      available: fs.existsSync(ICLOUD_ROOT),
+      root: ICLOUD_ROOT,
+      folder: path.join(ICLOUD_ROOT, app.name),
+    },
+  };
+}
+
+// The backup folder that was last inspected for a restore. The restore runs
+// on this folder, never on a path the renderer sends.
+let restoreDir = null;
+
+function registerSettingsIpc() {
+  ipcMain.handle('settings:get', () => settingsState());
+
+  ipcMain.handle('settings:set', (_e, key, value) => {
+    if (!EDITABLE[key] || typeof value !== EDITABLE[key]) return settingsState();
+    config[key] = value;
+    saveConfig();
+    scheduleAutoBackup();
+    return settingsState();
+  });
+
+  ipcMain.handle('settings:setLoginItem', (_e, enabled) => {
+    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!enabled });
+    return settingsState();
+  });
+  ipcMain.handle('settings:openLoginItems', () =>
+    shell.openExternal('x-apple.systempreferences:com.apple.LoginItems-Settings.extension'));
+
+  ipcMain.handle('settings:storeStartupColor', (_e, color) => {
+    const r = guard(() => {
+      const res = engine.storeStartupColor(color, currentScene ? currentScene.scene : null);
+      config.startupColor = color;
+      saveConfig();
+      scheduleAutoBackup();
+      return { device: res.name };
+    });
+    return { ...r, state: settingsState() };
+  });
+
+  ipcMain.handle('settings:showProfiles', () => shell.openPath(profilesDir()));
+
+  ipcMain.handle('backup:chooseDir', async () => {
+    const res = await dialog.showOpenDialog(settingsWindow, {
+      title: 'Choose backup folder',
+      message: 'Choose a folder. It may be on a network drive or in iCloud Drive.',
+      buttonLabel: 'Choose',
+      defaultPath: config.backupDir || app.getPath('documents'),
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (!res.canceled && res.filePaths.length) setBackupDir(res.filePaths[0]);
+    return settingsState();
+  });
+
+  ipcMain.handle('backup:useICloud', () => {
+    const folder = path.join(ICLOUD_ROOT, app.name);
+    try {
+      fs.mkdirSync(folder, { recursive: true });
+      setBackupDir(folder);
+      return { ok: true, state: settingsState() };
+    } catch (e) {
+      return { ok: false, error: e.message, state: settingsState() };
+    }
+  });
+
+  ipcMain.handle('backup:remove', () => {
+    config.backupDir = null;
+    saveConfig();
+    return settingsState();
+  });
+
+  ipcMain.handle('backup:reveal', () => config.backupDir && shell.openPath(config.backupDir));
+
+  ipcMain.handle('backup:now', () => {
+    try {
+      return { ok: true, message: backupSummary(runBackup()), state: settingsState() };
+    } catch (e) {
+      return { ok: false, error: e.message, state: settingsState() };
+    }
+  });
+
+  ipcMain.handle('backup:chooseRestore', async () => {
+    const res = await dialog.showOpenDialog(settingsWindow, {
+      title: 'Choose backup',
+      message: 'Choose the folder that holds the backup.',
+      buttonLabel: 'Open',
+      defaultPath: config.backupDir || app.getPath('documents'),
+      properties: ['openDirectory'],
+    });
+    if (res.canceled || !res.filePaths.length) return { ok: false, canceled: true };
+    try {
+      const preview = backupStore.inspect(res.filePaths[0], profilesDir());
+      restoreDir = res.filePaths[0];
+      return { ok: true, dir: restoreDir, preview };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('backup:restore', (_e, opts) => {
+    if (!restoreDir) return { ok: false, error: 'Choose a backup first.' };
+    const o = opts || {};
+    try {
+      const r = backupStore.restore(restoreDir, {
+        profilesDir: profilesDir(),
+        overwrite: !!o.overwrite,
+        restoreSettings: !!o.restoreSettings,
+        revive: Array.isArray(o.revive) ? o.revive : [],
+      });
+      if (r.settings) {
+        for (const [k, v] of Object.entries(pick(r.settings, BACKED_UP))) {
+          if (typeof v === EDITABLE[k]) config[k] = v;
+        }
+        saveConfig();
+      }
+      restoreDir = null;
+      if (mainWindow) mainWindow.webContents.send('profiles-changed');
+      scheduleAutoBackup();
+      return { ok: !r.failed.length, message: restoreSummary(r), state: settingsState() };
+    } catch (e) {
+      return { ok: false, error: e.message, state: settingsState() };
+    }
+  });
+}
+
+function setBackupDir(dir) {
+  config.backupDir = dir;
+  saveConfig();
+  scheduleAutoBackup(); // fill the new folder right away
 }
 
 // --- window + tray ----------------------------------------------------------
@@ -345,145 +550,109 @@ function scheduleReapply(attempt = 0) {
   }, REAPPLY_DELAYS_MS[attempt]);
 }
 
-// Store a startup color in the keyboard's on-board memory, then restore the
-// current per-key profile so nothing visibly changes now.
-function storeStartupColor(color) {
-  trayApply(() => {
-    const r = engine.storeStartupColor(color, currentScene ? currentScene.scene : null);
-    config.startupColor = color;
-    saveConfig();
-    refreshMenus();
-    return { device: r.name };
-  }, 'Startup color stored');
-}
-
+// Presets offered for the startup color stored in the keyboard's on-board
+// memory (settings window, General tab).
 const STARTUP_PRESETS = [
   ['White', '#ffffff'], ['Red', '#ff0000'], ['Orange', '#ff7a00'],
   ['Green', '#00ff33'], ['Blue', '#33ccff'], ['Purple', '#c060ff'],
 ];
-
-function startupColorSubmenuTemplate() {
-  const main = currentScene ? engine.dominantColor(currentScene.scene) : null;
-  return [
-    {
-      label: main ? `Main Color of Current Profile (${main})` : 'Main Color of Current Profile',
-      enabled: !!main,
-      click: () => {
-        const c = currentScene && engine.dominantColor(currentScene.scene);
-        if (c) storeStartupColor(c);
-      },
-    },
-    { type: 'separator' },
-    ...STARTUP_PRESETS.map(([name, hex]) => ({ label: `${name} (${hex})`, click: () => storeStartupColor(hex) })),
-    { label: 'Off (dark until the app starts)', click: () => storeStartupColor('#000000') },
-    { type: 'separator' },
-    { label: config.startupColor ? `Stored: ${config.startupColor}` : 'Stored: not set by this app', enabled: false },
-    { label: 'Per-key colors can’t be stored on the keyboard', enabled: false },
-  ];
-}
 
 function loadDefaultProfile() {
   trayApply(() => applyScene('default.json', readProfile('default')), 'Default applied');
   if (mainWindow) mainWindow.webContents.send('scene-loaded', currentScene);
 }
 
-// Choose the folder that receives copies of saved color profiles.
-async function chooseBackupFolder() {
-  const res = await dialog.showOpenDialog({
-    title: 'Choose backup folder for color profiles',
-    defaultPath: config.backupDir || app.getPath('documents'),
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  if (res.canceled || !res.filePaths.length) return;
-  config.backupDir = res.filePaths[0];
-  saveConfig();
-  refreshMenus();
-  try {
-    const n = backupAllProfiles(); // seed the folder with the current profiles
-    setTrayTitleFlash(`Backup folder set (${n} copied)`);
-  } catch (e) {
-    dialog.showMessageBox({ type: 'error', message: 'Backup failed', detail: e.message });
+// --- login item -------------------------------------------------------------
+// Never touch login items from a dev run: macOS matches the login item by app
+// name, and even querying it re-pointed the installed app's entry at the bare
+// node_modules Electron.app, which then opened its default window at boot.
+const LOGIN_STATUS = {
+  'enabled': 'Registered as a login item.',
+  'requires-approval': 'macOS needs your approval: System Settings → General → Login Items.',
+  'not-found': 'The entry was not found. That happens when the app has been moved.',
+  'not-registered': 'Not registered as a login item.',
+};
+
+function loginItemState() {
+  if (!app.isPackaged) {
+    return { available: false, enabled: false, note: 'Only available in the installed app — a development run never touches login items.' };
   }
+  const s = app.getLoginItemSettings();
+  return {
+    available: true,
+    enabled: !!s.openAtLogin,
+    needsApproval: s.status === 'requires-approval',
+    note: LOGIN_STATUS[s.status] || (s.openAtLogin ? LOGIN_STATUS.enabled : LOGIN_STATUS['not-registered']),
+    warning: app.getPath('exe').startsWith('/Applications/')
+      ? null
+      : 'The app is not in /Applications. Move it there before you turn this on.',
+  };
 }
 
-// Shared Settings submenu — used by both the tray menu and the application
-// menu bar, so the settings are reachable from either place.
-function settingsSubmenuTemplate() {
-  // Never touch login items from a dev run: macOS matches the login item by app
-  // name, and even querying it re-pointed the installed app's entry at the
-  // bare node_modules Electron.app, which then opened its default window at boot.
-  const login = app.isPackaged ? app.getLoginItemSettings() : { openAtLogin: false };
-  return [
-    {
-      label: app.isPackaged ? 'Start at Login' : 'Start at Login (installed app only)',
-      type: 'checkbox',
-      enabled: app.isPackaged,
-      checked: login.openAtLogin,
-      click: (item) => {
-        app.setLoginItemSettings({ openAtLogin: item.checked, openAsHidden: true });
-        refreshMenus();
-      },
+// --- settings window --------------------------------------------------------
+let settingsWindow = null;
+
+function showSettings(tab) {
+  if (process.platform === 'darwin' && app.dock) app.dock.show();
+  if (settingsWindow) {
+    if (tab) settingsWindow.webContents.send('settings-tab', tab);
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+  settingsWindow = new BrowserWindow({
+    width: 620,
+    height: 640,
+    minWidth: 620,
+    minHeight: 420,
+    maxWidth: 620,
+    title: 'Settings',
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 14, y: 14 },
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#ececec',
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
     },
-    {
-      label: 'Start Minimized (Menu Bar Only)',
-      type: 'checkbox',
-      checked: config.startMinimized,
-      click: (item) => { config.startMinimized = item.checked; saveConfig(); refreshMenus(); },
-    },
-    {
-      label: 'Apply Default Profile on Launch',
-      type: 'checkbox',
-      checked: config.applyOnLaunch,
-      click: (item) => { config.applyOnLaunch = item.checked; saveConfig(); refreshMenus(); },
-    },
-    {
-      label: 'Re-apply Profile After Wake / Unlock',
-      type: 'checkbox',
-      checked: config.reapplyOnWake,
-      click: (item) => { config.reapplyOnWake = item.checked; saveConfig(); refreshMenus(); },
-    },
-    { label: 'Startup Color (Stored on Keyboard)', submenu: startupColorSubmenuTemplate() },
-    { type: 'separator' },
-    { label: 'Choose Backup Folder…', click: () => chooseBackupFolder() },
-    {
-      label: config.backupDir ? `Backups: ${config.backupDir}` : 'Backups: not configured',
-      enabled: false,
-    },
-    {
-      label: 'Back Up Profiles Now',
-      enabled: !!config.backupDir,
-      click: () => {
-        try { setTrayTitleFlash(`${backupAllProfiles()} profiles backed up`); }
-        catch (e) { dialog.showMessageBox({ type: 'error', message: 'Backup failed', detail: e.message }); }
-      },
-    },
-    {
-      label: 'Show Backup Folder',
-      enabled: !!config.backupDir,
-      click: () => shell.openPath(config.backupDir),
-    },
-    { type: 'separator' },
-    { label: 'Show Profiles Folder', click: () => shell.openPath(profilesDir()) },
-  ];
+  });
+  settingsWindow.loadFile(path.join(__dirname, 'settings', 'index.html'), { query: tab ? { tab } : {} });
+  settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  settingsWindow.once('ready-to-show', () => {
+    settingsWindow.show();
+    app.focus({ steal: true }); // opened from the menu bar while in the background
+  });
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+    if (process.platform === 'darwin' && app.dock && !(mainWindow && mainWindow.isVisible())) app.dock.hide();
+  });
+}
+
+function notifySettingsChanged() {
+  if (settingsWindow) settingsWindow.webContents.send('settings-changed');
 }
 
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
+    { label: `${app.name} ${app.getVersion()}`, enabled: false },
+    { type: 'separator' },
     { label: 'Show / Hide Window', click: () => (mainWindow && mainWindow.isVisible() ? mainWindow.hide() : showWindow()) },
     { type: 'separator' },
     { label: 'Apply Default Profile', click: () => loadDefaultProfile() },
     { label: 'Turn Keyboard Off', click: () => turnKeyboardOff() },
     { type: 'separator' },
-    { label: 'Settings', submenu: settingsSubmenuTemplate() },
+    { label: 'Settings…', click: () => showSettings() },
     { type: 'separator' },
     { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
   ]);
-}
-
-// Rebuild both menus so checkbox/backup state stays in sync everywhere.
-function refreshMenus() {
-  if (tray) tray.setContextMenu(buildTrayMenu());
-  buildAppMenu();
 }
 
 function createTray() {
@@ -492,7 +661,7 @@ function createTray() {
   img.addRepresentation({ scaleFactor: 2, width: 44, height: 44, buffer: Buffer.from(TRAY_ICON_44_B64, 'base64') });
   img.setTemplateImage(true);
   tray = new Tray(img);
-  tray.setToolTip(app.name);
+  tray.setToolTip(`${app.name} ${app.getVersion()}`);
   tray.setContextMenu(buildTrayMenu());
   // NOTE: no tray.on('click') handler — clicking must only open the menu.
   // A click handler that focuses the window steals focus from the just-opened
@@ -508,19 +677,21 @@ function buildAppMenu() {
       submenu: [
         { role: 'about' },
         { type: 'separator' },
-        { label: 'Settings', submenu: settingsSubmenuTemplate() },
+        { label: 'Settings…', accelerator: 'Cmd+,', click: () => showSettings() },
         { type: 'separator' },
         { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
         { type: 'separator' },
         { label: 'Quit', accelerator: 'Cmd+Q', click: () => { isQuitting = true; app.quit(); } },
       ],
     }] : []),
-    { label: 'Settings', submenu: settingsSubmenuTemplate() },
+    { role: 'editMenu' }, // copy/paste in text fields (hex colors, profile names)
     {
       label: 'Keyboard',
       submenu: [
         { label: 'Apply Default Profile', click: () => loadDefaultProfile() },
         { label: 'Turn Keyboard Off', click: () => turnKeyboardOff() },
+        { type: 'separator' },
+        { label: 'Show Profiles Folder', click: () => shell.openPath(profilesDir()) },
       ],
     },
     {
@@ -561,6 +732,12 @@ if (!gotLock) {
     }
     registerIpc();
     buildAppMenu();
+    app.setAboutPanelOptions({
+      applicationName: app.name,
+      applicationVersion: app.getVersion(),
+      copyright: '© 2025 André Lindner · GNU GPL v2.0 or later',
+      website: REPO_URL,
+    });
 
     // Start minimized: no window, no dock — the app lives in the menu bar so
     // the lighting settings are active right after login.

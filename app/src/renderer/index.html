@@ -27,7 +27,14 @@
     background: var(--panel);
   }
   header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header h1 .ver { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
   header .sub { color: var(--muted); font-size: 12px; }
+  .tabs { display: flex; gap: 4px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; margin-left: 12px; }
+  .tabs button { border: 0; background: transparent; color: var(--muted); padding: 6px 16px; border-radius: 7px; font-weight: 500; }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.active { background: var(--panel2); color: var(--text); box-shadow: 0 1px 2px #0006; }
+  .tabs button[hidden] { display: none; }
+  .tab-panel[hidden] { display: none; }
   #status {
     margin-left: auto; display: flex; align-items: center; gap: 8px;
     font-size: 12.5px; padding: 6px 12px; border-radius: 999px;
@@ -36,6 +43,10 @@
   #status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
   #status.ok .dot { background: var(--accent); }
   #status.busy .dot, #status.err .dot { background: var(--danger); }
+  .icon-btn { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border-radius: 999px; color: var(--muted); }
+  .icon-btn:hover { color: var(--text); }
+  .dpi-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .dpi-presets button { padding: 6px 10px; font-size: 12px; }
   main { padding: 20px; max-width: 1180px; margin: 0 auto; }
 
   .board-wrap { overflow-x: auto; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -95,13 +106,21 @@
 <body>
 <header>
   <div>
-    <h1>Razer Ornata Chroma</h1>
-    <div class="sub">Per-key RGB lighting — desktop app</div>
+    <h1>Ornata Lighting<span class="ver" id="version"></span></h1>
+    <div class="sub">RGB lighting for the Razer Ornata Chroma and Basilisk V3</div>
   </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabKeyboard" data-tab="keyboard" class="active" aria-selected="true">Keyboard</button>
+    <button type="button" role="tab" id="tabMouse" data-tab="mouse" aria-selected="false" hidden>Mouse</button>
+  </nav>
   <div id="status" title="Click to re-check"><span class="dot"></span><span class="txt">Checking…</span></div>
+  <button type="button" class="icon-btn" id="openSettings" title="Settings (⌘,)" aria-label="Settings">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
 </header>
 
 <main>
+<section class="tab-panel" id="panelKeyboard" role="tabpanel">
   <div class="board-wrap">
     <div class="board" id="board"></div>
   </div>
@@ -165,22 +184,32 @@
         <button id="saveScene" type="button">Save profile</button>
         <button id="saveFile" type="button">Save to file…</button>
       </div>
-      <p class="hint">A profile stores the current colors, background and brightness. <b>Save profile</b> keeps it in the app’s profiles folder (Settings → Show Profiles Folder); <b>Save to file…</b> saves it anywhere via a native dialog. Load it again with <b>Open .json…</b>.</p>
+      <p class="hint">A profile stores the current colors, background and brightness. <b>Save profile</b> keeps it in the app’s profiles folder (Keyboard → Show Profiles Folder); <b>Save to file…</b> saves it anywhere via a native dialog. Load it again with <b>Open .json…</b>.</p>
     </div>
+  </div>
+</section>
 
+<section class="tab-panel" id="panelMouse" role="tabpanel" hidden>
+  <div class="controls">
     <div class="card">
-      <h2>Mouse <span id="mouseStatus" style="text-transform:none; letter-spacing:0; font-weight:400; color:var(--muted)">— checking…</span></h2>
+      <h2>Lighting</h2>
       <div class="row">
         <label>Color</label>
         <input type="color" id="mColor" value="#3a7afe">
         <input type="text" id="mColorHex" class="hex" value="#3a7afe" spellcheck="false">
-        <button id="mApplyColor" type="button">Apply color</button>
+        <div class="swatches" id="mSwatches"></div>
       </div>
       <div class="row actions">
+        <button class="primary" id="mApplyColor" type="button">Apply color</button>
         <button id="mSpectrum" type="button">Spectrum</button>
         <button id="mWave" type="button">Wave</button>
         <button id="mOff" type="button">Off</button>
       </div>
+      <p class="hint">The whole mouse is lit as one zone — the driver doesn’t expose the single underglow LEDs. The hardware wave has a direction but no speed.</p>
+    </div>
+
+    <div class="card">
+      <h2>Brightness &amp; DPI</h2>
       <div class="row">
         <label>Brightness</label>
         <input type="range" id="mBright" min="0" max="100" value="100">
@@ -191,10 +220,12 @@
         <label>DPI</label>
         <input type="text" id="mDpi" class="hex" style="width:84px" placeholder="e.g. 3200" spellcheck="false">
         <button id="mApplyDpi" type="button">Set</button>
+        <div class="dpi-presets" id="mDpiPresets"></div>
       </div>
-      <p class="hint">Lights the whole mouse (e.g. Basilisk V3) as one zone — per-key/underglow zones aren’t exposed by this driver. Quit the “Razer macOS” app first.</p>
+      <p class="hint" id="mouseStatus">Checking…</p>
     </div>
   </div>
+</section>
 </main>
 
 <div id="toast"></div>

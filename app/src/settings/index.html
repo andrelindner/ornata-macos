@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<!--
+  ornata-macos — Electron desktop app, settings window.
+  Copyright (C) 2025 André Lindner. GNU General Public License v2.0 or later.
+  Laid out like a macOS settings window: toolbar tabs, grouped sections with a
+  header and a footnote. Talks to the main process only via window.ornata.settings.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'">
+<title>Settings</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ececec; --group: #ffffff; --line: #0000001a; --text: #1d1d1f; --muted: #6e6e73;
+    --accent: #0a84ff; --ok: #28a745; --warn: #c77700; --danger: #d70015;
+    --btn: #ffffff; --btn-line: #00000026; --tab-active: #0000000f; --sheet: #f6f6f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1e; --group: #2a2a2a; --line: #ffffff14; --text: #e9e9eb; --muted: #98989d;
+      --accent: #0a84ff; --ok: #32d74b; --warn: #ff9f0a; --danger: #ff453a;
+      --btn: #3a3a3c; --btn-line: #ffffff1f; --tab-active: #ffffff1a; --sheet: #262626;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* Title bar + toolbar (the window has a hidden native title bar) */
+  .chrome { -webkit-app-region: drag; padding-top: 8px; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+  .title { text-align: center; font-weight: 600; font-size: 13px; height: 22px; line-height: 22px; }
+  .toolbar { display: flex; justify-content: center; gap: 4px; padding: 6px 0 8px; }
+  .toolbar button {
+    -webkit-app-region: no-drag; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    min-width: 72px; padding: 5px 8px 4px; border: 0; border-radius: 7px; background: transparent;
+    color: var(--muted); font: inherit; font-size: 11px; cursor: default;
+  }
+  .toolbar button svg { width: 22px; height: 22px; }
+  .toolbar button.active { background: var(--tab-active); color: var(--accent); }
+
+  main { flex: 1 1 auto; overflow-y: auto; padding: 8px 20px 24px; }
+  h3 { font-size: 13px; font-weight: 600; margin: 18px 4px 6px; }
+  .group { background: var(--group); border: 1px solid var(--line); border-radius: 10px; }
+  .item { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 12px; }
+  .item + .item { border-top: 1px solid var(--line); }
+  .item .label { flex: 1 1 auto; }
+  .item.stack { flex-direction: column; align-items: stretch; gap: 4px; }
+  .item .value { color: var(--muted); text-align: right; }
+  .path { color: var(--muted); word-break: break-all; -webkit-user-select: text; user-select: text; padding-left: 16px; }
+  .caption { color: var(--muted); font-size: 11px; }
+  .foot { color: var(--muted); font-size: 11px; margin: 6px 4px 0; }
+  .foot p { margin: 0 0 6px; }
+  .warn { color: var(--warn); font-size: 11px; }
+  .err { color: var(--danger); font-size: 11px; }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  button.push {
+    font: inherit; color: var(--text); background: var(--btn); border: 1px solid var(--btn-line);
+    border-radius: 6px; padding: 3px 11px; min-height: 24px; cursor: default; box-shadow: 0 0.5px 1px #0000001f;
+  }
+  button.push:active:not(:disabled) { filter: brightness(0.92); }
+  button.push:disabled { opacity: 0.45; }
+  button.push.default { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.push.destructive { color: var(--danger); }
+  select {
+    font: inherit; color: var(--text); background: var(--btn); border: 1px solid var(--btn-line);
+    border-radius: 6px; padding: 3px 6px; min-height: 24px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* macOS-style switch */
+  input.switch {
+    appearance: none; -webkit-appearance: none; flex: 0 0 auto; position: relative;
+    width: 32px; height: 18px; border-radius: 9px; background: #78788052; margin: 0; transition: background .15s;
+  }
+  input.switch::after {
+    content: ""; position: absolute; top: 1px; left: 1px; width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px #0000004d; transition: transform .15s;
+  }
+  input.switch:checked { background: var(--accent); }
+  input.switch:checked::after { transform: translateX(14px); }
+  input.switch:disabled { opacity: 0.45; }
+
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--btn-line); vertical-align: -2px; margin-right: 5px; }
+  .status { display: flex; gap: 8px; align-items: flex-start; }
+  .status .icon { font-size: 15px; line-height: 18px; }
+  .status.ok { color: var(--ok); }
+  .status.bad { color: var(--danger); }
+  .check { display: flex; gap: 10px; align-items: flex-start; }
+  .check .mark { width: 16px; text-align: center; color: var(--muted); }
+  .check .mark.done { color: var(--ok); }
+  .headline { font-weight: 600; font-size: 14px; }
+  .headline.ok { color: var(--ok); }
+  .headline.off { color: var(--muted); }
+
+  /* restore confirmation sheet */
+  .veil { position: fixed; inset: 0; background: #00000059; display: flex; align-items: flex-start; justify-content: center; padding-top: 30px; }
+  .sheet {
+    width: 540px; max-height: calc(100% - 50px); display: flex; flex-direction: column;
+    background: var(--sheet); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 50px #00000080;
+  }
+  .sheet .content { overflow-y: auto; padding: 4px 18px 16px; }
+  .sheet .actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  .tag { font-size: 11px; color: var(--muted); }
+  .tag.replace { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="chrome">
+  <div class="title" id="title">General</div>
+  <nav class="toolbar" id="toolbar">
+    <button type="button" data-tab="general" title="General">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>General</span>
+    </button>
+    <button type="button" data-tab="backup" title="Backup">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01M10 16h.01"/></svg>
+      <span>Backup</span>
+    </button>
+    <button type="button" data-tab="icloud" title="iCloud">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg>
+      <span>iCloud</span>
+    </button>
+  </nav>
+</div>
+
+<main>
+  <!-- General -->
+  <section class="pane" id="pane-general">
+    <h3>Start</h3>
+    <div class="group">
+      <div class="item">
+        <span class="label">Start at login</span>
+        <input type="checkbox" class="switch" id="loginItem">
+      </div>
+      <div class="item stack" id="loginInfo">
+        <span class="caption" id="loginNote"></span>
+        <span class="warn" id="loginWarning" hidden></span>
+        <div><button type="button" class="push" id="openLoginItems" hidden>Open System Settings…</button></div>
+      </div>
+    </div>
+    <div class="foot">The app keeps running as an icon in the menu bar, even when no window is open.</div>
+
+    <h3>Window</h3>
+    <div class="group">
+      <div class="item">
+        <span class="label">Open window at launch</span>
+        <input type="checkbox" class="switch" data-setting="startMinimized" data-invert>
+      </div>
+    </div>
+    <div class="foot">Off: the app starts in the menu bar only, with no window and no Dock icon — the right choice together with “Start at login”.</div>
+
+    <h3>Keyboard</h3>
+    <div class="group">
+      <div class="item">
+        <span class="label">Apply default profile at launch</span>
+        <input type="checkbox" class="switch" data-setting="applyOnLaunch">
+      </div>
+      <div class="item">
+        <span class="label">Re-apply profile after wake and unlock</span>
+        <input type="checkbox" class="switch" data-setting="reapplyOnWake">
+      </div>
+    </div>
+    <div class="foot">The keyboard forgets its per-key colors when it loses power, and single keys can come back dark after sleep (especially behind a monitor or KVM hub). Both options put the colors back without a click.</div>
+
+    <h3>Startup color</h3>
+    <div class="group">
+      <div class="item">
+        <span class="label">Stored on the keyboard</span>
+        <span class="value" id="startupStored"></span>
+      </div>
+      <div class="item">
+        <span class="label">Color</span>
+        <select id="startupChoice"></select>
+        <button type="button" class="push" id="storeStartup">Store on Keyboard</button>
+      </div>
+      <div class="item stack" id="startupResultRow" hidden>
+        <span class="caption" id="startupResult"></span>
+      </div>
+    </div>
+    <div class="foot">The keyboard shows this one color at power-on, before macOS and this app run. Per-key colors can’t be stored on the keyboard. Storing writes the keyboard’s flash memory, so it only happens when you press the button; the current profile is restored right after.</div>
+
+    <h3>Profiles</h3>
+    <div class="group">
+      <div class="item stack">
+        <span>Profiles folder</span>
+        <span class="path" id="profilesDir"></span>
+      </div>
+      <div class="item">
+        <div class="buttons"><button type="button" class="push" id="showProfiles">Show in Finder</button></div>
+      </div>
+    </div>
+
+    <h3>About</h3>
+    <div class="group">
+      <div class="item">
+        <span class="label">Version</span>
+        <span class="value" id="version"></span>
+      </div>
+      <div class="item">
+        <span class="label">Project</span>
+        <a href="https://github.com/andrelindner/ornata-macos" target="_blank" rel="noopener">github.com/andrelindner/ornata-macos</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Backup -->
+  <section class="pane" id="pane-backup" hidden>
+    <h3>Backup folder</h3>
+    <div class="group">
+      <div class="item stack">
+        <span>Folder</span>
+        <span class="path" id="backupDir"></span>
+        <span class="warn" id="backupUnreachable" hidden>The folder is not reachable right now. For a network share: connect it in Finder.</span>
+      </div>
+      <div class="item">
+        <div class="buttons">
+          <button type="button" class="push" id="chooseDir">Choose Folder…</button>
+          <button type="button" class="push" id="revealDir">Show in Finder</button>
+          <button type="button" class="push destructive" id="removeDir">Remove</button>
+        </div>
+      </div>
+    </div>
+    <div class="foot">It may also be a network drive, an SMB share or a folder in iCloud Drive. The backup consists of plain files, not an archive — in an emergency you can get at your profiles without this app.</div>
+
+    <h3>Back up</h3>
+    <div class="group">
+      <div class="item">
+        <span class="label">Back up automatically after changes</span>
+        <input type="checkbox" class="switch" data-setting="autoBackup" id="autoBackup">
+      </div>
+      <div class="item" id="lastBackupRow" hidden>
+        <span class="label">Last backup</span>
+        <span class="value" id="lastBackup"></span>
+      </div>
+      <div class="item">
+        <span class="label">Keep deleted profiles</span>
+        <select id="retention">
+          <option value="7">7 days</option>
+          <option value="30">30 days</option>
+          <option value="90">90 days</option>
+          <option value="0">forever</option>
+        </select>
+      </div>
+      <div class="item">
+        <div class="buttons"><button type="button" class="push" id="backupNow">Back Up Now</button></div>
+      </div>
+    </div>
+    <div class="foot">
+      <p>The backup holds all profiles from the profiles folder and the settings of this window.</p>
+      <p>If you delete a profile here, it does <b>not</b> vanish from the backup at once: it moves to the subfolder “deleted” and stays there for the chosen time. An accidental delete is often noticed days later — until then the copy is still there. If the profile shows up again, it is taken out of there by itself.</p>
+    </div>
+
+    <h3>Restore</h3>
+    <div class="group">
+      <div class="item">
+        <div class="buttons"><button type="button" class="push" id="chooseRestore">Restore from Backup…</button></div>
+      </div>
+    </div>
+    <div class="foot">Also works on a freshly set up Mac: choose the folder, and the profiles come back into the app. Existing profiles are not overwritten without asking. Backups from version 1.3 and earlier (plain profile copies) can be restored too.</div>
+
+    <div id="backupStatusWrap" hidden>
+      <h3>&nbsp;</h3>
+      <div class="group"><div class="item"><div class="status" id="backupStatus"><span class="icon"></span><span class="msg"></span></div></div></div>
+    </div>
+  </section>
+
+  <!-- iCloud -->
+  <section class="pane" id="pane-icloud" hidden>
+    <h3>Status</h3>
+    <div class="group">
+      <div class="item stack">
+        <span class="headline" id="icloudHeadline"></span>
+        <span class="caption" id="icloudDetail"></span>
+      </div>
+      <div class="item" id="icloudActionRow" hidden>
+        <div class="buttons"><button type="button" class="push" id="useICloud">Back Up to iCloud Drive</button></div>
+      </div>
+    </div>
+    <div class="foot" id="icloudFolderNote"></div>
+
+    <h3>Roadmap</h3>
+    <div class="group">
+      <div class="item">
+        <div class="check"><span class="mark" id="markDrive">○</span><div>Backup through iCloud Drive<div class="caption">Works today, with no extra requirements — choose a folder in iCloud Drive.</div></div></div>
+      </div>
+      <div class="item">
+        <div class="check"><span class="mark">○</span><div>Pick up changes from other Macs automatically<div class="caption">Planned: notice a newer backup in the iCloud folder and offer to apply it.</div></div></div>
+      </div>
+      <div class="item">
+        <div class="check"><span class="mark">○</span><div>Native iCloud sync (CloudKit)<div class="caption">Needs an Apple Developer Program membership and an app signed with a Team ID — the app is unsigned today.</div></div></div>
+      </div>
+    </div>
+    <div class="foot">The backup is built on plain folders, so iCloud Drive needs no special code. A native sync can be added next to it later without changing the backup format.</div>
+
+    <h3>Scope</h3>
+    <div class="group">
+      <div class="item stack">
+        <span>Profiles and settings travel with the backup.</span>
+        <span class="caption">The startup color stored in the keyboard, the login item and the backup folder itself stay per Mac.</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Restore confirmation -->
+<div class="veil" id="restoreVeil" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="restoreTitle">
+    <div class="content">
+      <h3 id="restoreTitle">Backup</h3>
+      <div class="group" id="restoreMeta"></div>
+      <div class="foot" id="restoreLegacy" hidden>Older backup format (version 1.3 or earlier): it holds profiles only, no settings.</div>
+
+      <h3>Profiles</h3>
+      <div class="group" id="restoreProfiles"></div>
+
+      <div id="restoreRemovedWrap" hidden>
+        <h3>In the grace period</h3>
+        <div class="group" id="restoreRemoved"></div>
+        <div class="foot">These profiles were deleted locally and are still kept in the backup. Switch them on to bring them back.</div>
+      </div>
+
+      <h3>Scope</h3>
+      <div class="group">
+        <div class="item">
+          <span class="label">Also restore the settings</span>
+          <input type="checkbox" class="switch" id="restoreSettings">
+        </div>
+        <div class="item" id="overwriteRow">
+          <span class="label">Overwrite existing profiles</span>
+          <input type="checkbox" class="switch" id="restoreOverwrite">
+        </div>
+        <div class="item stack" id="overwriteInfo"><span class="caption" id="overwriteNote"></span></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="push" id="restoreCancel">Cancel</button>
+      <button type="button" class="push default" id="restoreConfirm">Restore</button>
+    </div>
+  </div>
+</div>
+
+<script src="settings.js"></script>
+</body>
+</html>

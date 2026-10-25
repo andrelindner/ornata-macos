@@ -17,9 +17,16 @@ const state = {
   background: "#000000",
   brightness: 100,
   paint: "#44d07b",
+  tab: "keyboard",       // "keyboard" | "mouse"
+  keyboardInfo: null,    // last api.status() result
+  mouseInfo: null,       // last api.mouseStatus() result
 };
 
 const PALETTE = ["#ff0000","#ff7a00","#ffd500","#00ff33","#00e5ff","#3a7afe","#a24bff","#ff2e97","#ffffff","#000000"];
+const DPI_PRESETS = [800, 1600, 3200, 6400];
+// How often to look for the mouse while the window is visible, so its tab
+// appears/disappears when it is plugged in or out.
+const MOUSE_POLL_MS = 15000;
 
 function toast(msg, isErr) {
   const t = $("#toast");
@@ -130,21 +137,47 @@ async function refreshStatus() {
   const s = $("#status");
   s.className = ""; s.querySelector(".txt").textContent = "Checking…";
   try {
-    const info = await api.status();
-    if (info.ok) {
-      s.className = "ok";
-      s.querySelector(".txt").textContent = `${info.name} connected`;
-    } else if (info.code === "DEVICE_BUSY") {
-      s.className = "busy";
-      s.querySelector(".txt").textContent = "Quit “Razer macOS” app first";
-    } else {
-      s.className = "err";
-      s.querySelector(".txt").textContent = info.code === "NO_ADDON" ? "addon.node missing" : "No keyboard found";
-    }
+    state.keyboardInfo = await api.status();
   } catch (e) {
-    s.className = "err"; s.querySelector(".txt").textContent = "App error";
+    state.keyboardInfo = { ok: false, code: "APP_ERROR" };
+  }
+  $("#tabKeyboard").textContent = state.keyboardInfo.ok ? state.keyboardInfo.name : "Keyboard";
+  renderStatus();
+}
+
+// The status pill describes the device of the active tab.
+function renderStatus() {
+  const s = $("#status");
+  const txt = s.querySelector(".txt");
+  const info = state.tab === "mouse" ? state.mouseInfo : state.keyboardInfo;
+  if (!info) { s.className = ""; txt.textContent = "Checking…"; return; }
+  if (info.ok) {
+    s.className = "ok";
+    txt.textContent = `${info.name} connected` + (state.tab === "mouse" && info.dpi != null ? ` · ${info.dpi} DPI` : "");
+  } else if (info.code === "DEVICE_BUSY") {
+    s.className = "busy"; txt.textContent = "Quit “Razer macOS” app first";
+  } else if (info.code === "NO_ADDON") {
+    s.className = "err"; txt.textContent = "addon.node missing";
+  } else if (info.code === "APP_ERROR") {
+    s.className = "err"; txt.textContent = "App error";
+  } else {
+    s.className = "err"; txt.textContent = state.tab === "mouse" ? "No mouse found" : "No keyboard found";
   }
 }
+
+// --- tabs -------------------------------------------------------------------
+function showTab(tab) {
+  state.tab = tab;
+  for (const b of document.querySelectorAll(".tabs button")) {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  }
+  $("#panelKeyboard").hidden = tab !== "keyboard";
+  $("#panelMouse").hidden = tab !== "mouse";
+  renderStatus();
+}
+
 function handleDeviceResult(r, okMsg) {
   if (r.ok) { toast(okMsg); refreshStatus(); }
   else if (r.code === "DEVICE_BUSY") { toast("Quit the “Razer macOS” menu-bar app first, then try again.", true); refreshStatus(); }
@@ -152,20 +185,22 @@ function handleDeviceResult(r, okMsg) {
 }
 
 // --- mouse ------------------------------------------------------------------
+// The mouse tab only exists while a supported mouse (Basilisk V3) is found.
 async function refreshMouseStatus() {
-  const el = $("#mouseStatus");
-  try {
-    const s = await api.mouseStatus();
-    if (s.ok) {
-      el.textContent = `— ${s.name} connected` + (s.dpi != null ? `, ${s.dpi} DPI` : "");
-      el.style.color = "var(--accent)";
-      if (s.dpi != null && !$("#mDpi").value) $("#mDpi").value = s.dpi;
-    } else if (s.code === "DEVICE_BUSY") {
-      el.textContent = "— quit “Razer macOS” app first"; el.style.color = "#ff8f92";
-    } else {
-      el.textContent = "— no mouse found"; el.style.color = "var(--muted)";
-    }
-  } catch (e) { el.textContent = "— app error"; el.style.color = "#ff8f92"; }
+  let info;
+  try { info = await api.mouseStatus(); } catch (e) { info = { ok: false, code: "APP_ERROR" }; }
+  state.mouseInfo = info;
+  const tabBtn = $("#tabMouse");
+  tabBtn.hidden = !info.ok;
+  if (info.ok) {
+    tabBtn.textContent = info.name;
+    $("#mouseStatus").textContent = `${info.name} connected` + (info.dpi != null ? `, currently ${info.dpi} DPI.` : ".");
+    if (info.dpi != null && !$("#mDpi").value) $("#mDpi").value = info.dpi;
+  } else if (state.tab === "mouse") {
+    showTab("keyboard");
+    toast(info.code === "DEVICE_BUSY" ? "Mouse busy — quit the “Razer macOS” app first." : "Mouse disconnected.", true);
+  }
+  renderStatus();
 }
 async function mouseApply(opts, okMsg) {
   const r = await api.mouse(opts);
@@ -217,13 +252,28 @@ async function init() {
     };
     gb.appendChild(b);
   }
-  const scenes = await api.listScenes();
-  const sel = $("#sceneSelect");
-  for (const f of scenes.scenes) {
-    const o = document.createElement("option"); o.value = f; o.textContent = f; sel.appendChild(o);
+  await fillSceneSelect();
+
+  const msw = $("#mSwatches");
+  for (const c of PALETTE) {
+    const d = document.createElement("div");
+    d.className = "swatch"; d.style.background = c; d.title = c;
+    d.onclick = () => setMPaint(c);
+    msw.appendChild(d);
+  }
+  const dp = $("#mDpiPresets");
+  for (const v of DPI_PRESETS) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = v;
+    b.onclick = () => { $("#mDpi").value = v; mouseApply({ dpi: v }, `Mouse DPI ${v}`); };
+    dp.appendChild(b);
   }
 
   wireControls();
+
+  const info = await api.appInfo();
+  $("#version").textContent = `v${info.version}`;
+  document.title = `${info.name} ${info.version}`;
 
   // Show the profile that is currently on the keyboard (applied at launch or
   // from the tray) instead of starting from an empty board.
@@ -232,6 +282,11 @@ async function init() {
 
   refreshStatus();
   refreshMouseStatus();
+  window.addEventListener("focus", refreshMouseStatus);
+  setInterval(() => { if (!document.hidden) refreshMouseStatus(); }, MOUSE_POLL_MS);
+
+  // A restore from a backup changed the profiles folder.
+  api.onProfilesChanged(() => fillSceneSelect());
 
   // The tray "Apply Default Profile" reflects into the editor.
   api.onSceneLoaded(async (applied) => {
@@ -246,13 +301,31 @@ async function init() {
   });
 }
 
+async function fillSceneSelect() {
+  const sel = $("#sceneSelect");
+  const keep = sel.value;
+  sel.length = 1; // keep the "choose a profile" placeholder
+  for (const f of (await api.listScenes()).scenes) {
+    const o = document.createElement("option"); o.value = f; o.textContent = f; sel.appendChild(o);
+  }
+  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "";
+}
+
+let mPaint = "#3a7afe";
+function setMPaint(v) {
+  const h = normHex(v); if (!h) return;
+  mPaint = h; $("#mColor").value = h; $("#mColorHex").value = h;
+}
+
 function setPaint(hex) {
   const h = normHex(hex); if (!h) return;
   state.paint = h; $("#picker").value = h; $("#hex").value = h;
 }
 
 function wireControls() {
-  $("#status").onclick = refreshStatus;
+  $("#status").onclick = () => (state.tab === "mouse" ? refreshMouseStatus() : refreshStatus());
+  $("#openSettings").onclick = () => api.openSettings();
+  for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => showTab(b.dataset.tab);
   $("#picker").oninput = (e) => setPaint(e.target.value);
   $("#hex").onchange = (e) => { const h = normHex(e.target.value); if (h) setPaint(h); else e.target.value = state.paint; };
 
@@ -320,8 +393,6 @@ function wireControls() {
   };
 
   // mouse controls
-  let mPaint = "#3a7afe";
-  const setMPaint = (v) => { const h = normHex(v); if (!h) return; mPaint = h; $("#mColor").value = h; $("#mColorHex").value = h; };
   $("#mColor").oninput = (e) => setMPaint(e.target.value);
   $("#mColorHex").onchange = (e) => { const h = normHex(e.target.value); if (h) setMPaint(h); else e.target.value = mPaint; };
   $("#mApplyColor").onclick = () => mouseApply({ mode: "static", color: mPaint }, `Mouse set to ${mPaint}`);

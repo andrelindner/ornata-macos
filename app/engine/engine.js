@@ -27,8 +27,8 @@ const ADDON_PATH = path.join(__dirname, '..', 'addon.node');
 // Product IDs of Ornata keyboards that share this 6x22 layout.
 const ORNATA_PIDS = { 542: 'Ornata Chroma', 543: 'Ornata', 605: 'Ornata Chroma V2' };
 
-// Known Razer mice (nicer display names). Any non-keyboard Razer device is
-// still usable as a generic mouse if it isn't listed here.
+// Supported Razer mice. Only these count as "mouse connected"; the app shows
+// its mouse tab only when one of them is found.
 const MOUSE_PIDS = { 153: 'Basilisk V3' };
 
 // A device-access error the caller can recognize: it means the Razer macOS app
@@ -91,13 +91,11 @@ function findKeyboard(addon) {
   return kbd;
 }
 
-// Find a Razer mouse. Prefers a known mouse PID; otherwise falls back to any
-// connected device that isn't the Ornata keyboard.
+// Find a supported Razer mouse (see MOUSE_PIDS).
 function findMouse(addon) {
   const devices = openDevices(addon);
-  const dev = devices.find((d) => MOUSE_PIDS[d.productId])
-    || devices.find((d) => !ORNATA_PIDS[d.productId]);
-  if (!dev) throw new Error('No Razer mouse found. Devices seen: ' + JSON.stringify(devices));
+  const dev = devices.find((d) => MOUSE_PIDS[d.productId]);
+  if (!dev) throw new Error('No supported Razer mouse found. Devices seen: ' + JSON.stringify(devices));
   return dev;
 }
 
@@ -106,7 +104,7 @@ function keyboardName(kbd) {
 }
 
 function mouseName(dev) {
-  return MOUSE_PIDS[dev.productId] || `Razer mouse (0x${dev.productId.toString(16).padStart(4, '0')})`;
+  return MOUSE_PIDS[dev.productId];
 }
 
 // Open the devices, locate one with find(addon), run fn(addon, dev) and always

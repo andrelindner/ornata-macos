@@ -38,13 +38,22 @@ can paint any key any color.
   - Profiles live in `~/Library/Application Support/Ornata Lighting/profiles/`,
     outside the app bundle, so updates keep them.
   - On first launch the folder is filled with the bundled scenes.
-- **Mouse panel** for the Basilisk V3: static **Color**, **Spectrum**, **Wave**,
-  **Off**, **Brightness** (0–100) and **DPI**, plus a status line.
+- **Mouse tab** for the Basilisk V3: static **Color**, **Spectrum**, **Wave**,
+  **Off**, **Brightness** (0–100) and **DPI** with presets. The tab only shows
+  up while a supported mouse is connected; the app checks again when the window
+  gets focus and every 15 seconds.
+- **Settings window** (⌘, or the gear in the window) with the tabs *General*,
+  *Backup* and *iCloud*, see [Settings](#settings).
+- **Backup and restore** of profiles and settings to any folder, including a
+  network share or iCloud Drive, see [Backup](#backup).
+- The **version** is shown in the window header, the menu-bar menu, the About
+  panel and the settings window.
 - **Menu-bar (tray) icon** with these items:
+  - the app name and version
   - Show/Hide Window
   - Apply Default Profile
   - Turn Keyboard Off
-  - Settings
+  - Settings…
   - Quit
 
   Closing the window keeps the app running in the menu bar.
@@ -82,37 +91,78 @@ can paint any key any color.
 
 ## Settings
 
-**Settings** is in the menu-bar (tray) menu and in the app's menu bar. The app
-saves them in `~/Library/Application Support/Ornata Lighting/settings.json`.
+Open **Settings…** from the menu-bar (tray) menu, the app menu (⌘,) or the gear
+in the window header. The app saves them in
+`~/Library/Application Support/Ornata Lighting/settings.json`.
 
-- **Start at Login** registers the app as a macOS login item.
-- **Start Minimized (Menu Bar Only)** launches the app with no window and no Dock
-  icon; it lives in the menu bar. Combine it with *Start at Login* so your
-  lighting is active right after boot.
-- **Apply Default Profile on Launch** (on by default) re-applies the `default`
+**General**
+
+- **Start at login** registers the app as a macOS login item. The line below
+  the switch shows what macOS reports (registered, needs approval in System
+  Settings → General → Login Items, or not found because the app was moved).
+- **Open window at launch**. Off: the app starts in the menu bar only, with no
+  window and no Dock icon. Combine it with *Start at login* so your lighting is
+  active right after boot.
+- **Apply default profile at launch** (on by default) re-applies the `default`
   profile on every launch. The keyboard forgets its per-key colors when it loses
   power. If the keyboard isn't ready yet at login, the app retries in the
   background.
-- **Re-apply Profile After Wake / Unlock** (on by default) re-sends the current
+- **Re-apply profile after wake and unlock** (on by default) re-sends the current
   profile a few seconds after the Mac wakes from sleep or the screen is unlocked.
-  - Single LEDs can come back without their color after sleep, especially
-    behind a monitor or KVM USB hub.
-  - This puts the colors back without a click.
-- **Startup Color (Stored on Keyboard)** stores one color in the keyboard's
-  on-board memory. The keyboard shows it at power-on, before macOS and this app
-  run.
-  - Choose the main color of the current profile, a preset, or *Off*.
+  Single LEDs can come back without their color after sleep, especially behind a
+  monitor or KVM USB hub.
+- **Startup color** stores one color in the keyboard's on-board memory. The
+  keyboard shows it at power-on, before macOS and this app run.
+  - Choose the main color of the current profile, a preset, or *Off*, then press
+    **Store on Keyboard**.
   - The current per-key profile is restored right after, so nothing visibly
     changes.
-  - This writes the keyboard's flash memory, so it only happens when you pick a
-    color.
-- **Choose Backup Folder…** picks a folder that receives a copy of every color
-  profile.
-  - Choosing the folder fills it with your current profiles.
-  - After that, every profile you save in the app is copied there automatically.
-  - **Back Up Profiles Now** copies all saved profiles again.
-  - **Show Backup Folder** opens the folder in Finder.
-- **Show Profiles Folder** opens the folder that holds your saved profiles.
+  - This writes the keyboard's flash memory, so it only happens when you press
+    the button.
+- **Profiles folder** with **Show in Finder**, and the app version.
+
+**Backup**: see [Backup](#backup).
+
+**iCloud**
+
+- Shows whether the backup already goes to iCloud Drive. If not, **Back Up to
+  iCloud Drive** sets the backup folder to `iCloud Drive/Ornata Lighting`.
+- A roadmap for a later automatic sync: picking up newer backups from other Macs,
+  and a native CloudKit sync, which needs an Apple Developer Program membership
+  and a signed app.
+
+## Backup
+
+Settings → **Backup** works like a folder backup in other macOS apps:
+
+- **Backup folder**: **Choose Folder…**, **Show in Finder** and **Remove**. Any
+  folder works, also a network drive, an SMB share or iCloud Drive.
+- **Back up automatically after changes** (on by default): every saved profile
+  and every settings change is backed up a moment later.
+- **Keep deleted profiles** (7, 30 or 90 days, or forever): a profile deleted
+  locally is not dropped from the backup at once. It moves to `deleted/` and
+  stays there for that time; if it shows up locally again, it comes back by
+  itself.
+- **Back Up Now** runs a backup and shows what it did.
+- **Restore from Backup…** picks a backup folder and shows its contents first:
+  when and on which Mac it was made, the profiles (new, kept, or replaced), the
+  profiles in the grace period, and whether the settings come along. Existing
+  profiles are only replaced if you switch on **Overwrite existing profiles**.
+
+The backup is made of plain files, not an archive, so you can get at a profile
+without the app:
+
+```
+<backup folder>/
+  ornata-backup.json   manifest: date, Mac, app version, profile list, settings
+  profiles/*.json      one file per profile
+  deleted/*.json       profiles deleted locally, kept for the grace period
+```
+
+The settings in the backup are the switches of the settings window and the
+retention time. The backup folder, the login item and the stored startup color
+stay per Mac. Backups made by version 1.3 and earlier (a flat copy of the profile
+files) can be restored as well.
 
 ## Profile format
 
@@ -166,6 +216,8 @@ The **default profile** uses these colors:
 - Only a single **startup color** can be stored on the keyboard.
 - The **mouse** is lit as one zone, the driver's whole-mouse mode, the same as in
   razer-macos. The driver doesn't expose individual underglow LEDs.
+- The only supported mouse is the **Basilisk V3** (PID `0x0099`). Other Razer
+  mice are not offered in the mouse tab.
 - The hardware **wave** effect has no speed setting, only a direction.
 - Other Ornata models (Ornata `0x021F`, Ornata Chroma V2 `0x025D`) are recognized
   but not verified on real hardware. See issue #10.
@@ -203,13 +255,15 @@ After `npm run dist`, the `postdist` script removes the build byproducts, so
 
 ```
 app/
-  src/main.js          main process: IPC, tray, menus, settings, profiles
+  src/main.js          main process: IPC, tray, menus, settings, profiles, backup
   src/preload.js       window.ornata.* bridge (contextIsolation on, no Node in the UI)
-  src/renderer/        the window: visual keyboard, profiles, mouse panel
+  src/renderer/        the main window: keyboard tab, mouse tab, profiles
+  src/settings/        the settings window: General, Backup, iCloud
   src/smoke.js         headless device check
   engine/engine.js     device I/O through addon.node (plain Node, no Electron)
   engine/layout.js     key -> [row, col] map, groups, aliases, labels
   engine/scenes.js     reading, listing and writing scene/profile files
+  engine/backup.js     backup to a folder, inspect and restore (plain Node)
   scenes/              bundled scenes (default profile + examples)
   assets/              app icon (generated by make_icon.py)
   setup.sh             extracts addon.node from the installed Razer macOS app

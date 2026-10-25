@@ -16,6 +16,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('ornata', {
+  // { name, version } of the app
+  appInfo: () => ipcRenderer.invoke('appInfo'),
+
   // Layout + status
   layout: () => ipcRenderer.invoke('layout'),
   status: () => ipcRenderer.invoke('status'),
@@ -42,4 +45,29 @@ contextBridge.exposeInMainWorld('ornata', {
   // Main -> renderer notifications (e.g. tray applied the default profile).
   // The payload is the applied { name, scene } so the editor can mirror it.
   onSceneLoaded: (cb) => ipcRenderer.on('scene-loaded', (_e, cur) => cb(cur)),
+  // The profiles folder changed outside the editor (restore from a backup).
+  onProfilesChanged: (cb) => ipcRenderer.on('profiles-changed', () => cb()),
+
+  // Settings window. Every call that changes something resolves to the new
+  // settings state (or { ok, message|error, state }).
+  openSettings: (tab) => ipcRenderer.invoke('openSettings', tab),
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    set: (key, value) => ipcRenderer.invoke('settings:set', key, value),
+    setLoginItem: (enabled) => ipcRenderer.invoke('settings:setLoginItem', enabled),
+    openLoginItems: () => ipcRenderer.invoke('settings:openLoginItems'),
+    storeStartupColor: (color) => ipcRenderer.invoke('settings:storeStartupColor', color),
+    showProfiles: () => ipcRenderer.invoke('settings:showProfiles'),
+    chooseBackupDir: () => ipcRenderer.invoke('backup:chooseDir'),
+    useICloud: () => ipcRenderer.invoke('backup:useICloud'),
+    removeBackupDir: () => ipcRenderer.invoke('backup:remove'),
+    revealBackupDir: () => ipcRenderer.invoke('backup:reveal'),
+    backupNow: () => ipcRenderer.invoke('backup:now'),
+    // Pick a backup folder and describe it: { ok, dir, preview } (see engine/backup.js inspect()).
+    chooseRestore: () => ipcRenderer.invoke('backup:chooseRestore'),
+    // Restore the folder chosen last: { overwrite, restoreSettings, revive: [names] }.
+    restore: (opts) => ipcRenderer.invoke('backup:restore', opts),
+    onChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
+    onTab: (cb) => ipcRenderer.on('settings-tab', (_e, tab) => cb(tab)),
+  },
 });
