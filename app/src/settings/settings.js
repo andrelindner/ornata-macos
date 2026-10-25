@@ -21,6 +21,16 @@ function el(tag, props, ...children) {
   return e;
 }
 
+// "deleted <date> · kept until <date>" for a profile in the grace period.
+function graceCaption(removedAt) {
+  const days = state.config.backupRetentionDays;
+  const until = new Date(new Date(removedAt).getTime() + days * 86400000);
+  const keep = days > 0 && !isNaN(until)
+    ? ` · kept until ${until.toLocaleDateString(undefined, { dateStyle: "medium" })}`
+    : "";
+  return `deleted ${formatDate(removedAt)}${keep}`;
+}
+
 function formatDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -161,7 +171,7 @@ function openRestoreSheet(p, dir) {
     const box = el("input", { type: "checkbox", className: "switch" });
     box.dataset.name = r.name;
     removed.append(el("div", { className: "item" },
-      el("div", { className: "label" }, r.name, el("div", { className: "caption", textContent: `deleted ${formatDate(r.removedAt)}` })),
+      el("div", { className: "label" }, r.name, el("div", { className: "caption", textContent: graceCaption(r.removedAt) })),
       box));
   }
 

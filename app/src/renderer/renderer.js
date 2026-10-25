@@ -312,6 +312,16 @@ async function fillSceneSelect() {
     const o = document.createElement("option"); o.value = f; o.textContent = f; sel.appendChild(o);
   }
   sel.value = [...sel.options].some(o => o.value === keep) ? keep : "";
+  updateDeleteButton();
+}
+
+// The default profile is the fallback for the tray and launch; it can only be
+// overwritten, not deleted.
+function updateDeleteButton() {
+  const name = $("#sceneSelect").value;
+  const btn = $("#deleteScene");
+  btn.disabled = !name || name === "default.json";
+  btn.title = name === "default.json" ? "The default profile can’t be deleted" : "";
 }
 
 let mPaint = "#3a7afe";
@@ -367,6 +377,17 @@ function wireControls() {
     if (!d.ok) { toast(d.error || "Load failed", true); return; }
     loadSceneObject(d.scene);
     toast(`Loaded ${name} into editor`);
+  };
+  $("#sceneSelect").onchange = updateDeleteButton;
+  $("#deleteScene").onclick = async () => {
+    const name = $("#sceneSelect").value;
+    if (!name) return;
+    const r = await api.deleteScene(name);
+    if (r.canceled) return;
+    if (!r.ok) { toast(r.error || "Delete failed", true); return; }
+    await fillSceneSelect();
+    if (r.warning) toast(`Deleted ${r.name} — backup failed: ${r.warning}`, true);
+    else toast(r.retired ? `Deleted ${r.name} — the backup keeps it ${r.kept}` : `Deleted ${r.name} — moved to the Trash`);
   };
   $("#loadFile").onclick = async () => {
     const d = await api.loadSceneFile();

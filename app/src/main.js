@@ -253,6 +253,48 @@ function registerIpc() {
     }
   });
 
+  // Delete a profile after a native confirmation. Like the SSH Key Manager, the
+  // file goes to the Trash and the backup keeps it: a backup right before
+  // captures its latest state, the one right after moves it into deleted/ with
+  // the date, where Restore offers it for the grace period.
+  ipcMain.handle('deleteScene', async (_e, name) => {
+    let full;
+    try { full = scenes.scenePath(profilesDir(), name); } catch (e) { return { ok: false, error: e.message }; }
+    const file = path.basename(full);
+    if (file === 'default.json') return { ok: false, error: 'The default profile can’t be deleted — overwrite it with Save profile instead.' };
+    if (!fs.existsSync(full)) return { ok: false, error: `${file} doesn’t exist anymore.` };
+
+    const days = config.backupRetentionDays;
+    const kept = days > 0 ? `for ${plural(days, '1 day', 'days')}` : 'until you remove it';
+    const backedUp = !!config.backupDir && fs.existsSync(config.backupDir);
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      message: `Delete the profile “${file}”?`,
+      detail: backedUp
+        ? `It moves to the Trash. The backup keeps a copy ${kept}; bring it back with Settings → Backup → Restore from Backup…`
+        : 'It moves to the Trash. No backup folder is reachable, so the app can’t restore it — only the Trash can.',
+      buttons: ['Delete', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (response !== 0) return { ok: false, canceled: true };
+
+    let warning = null;
+    if (backedUp) {
+      try { runBackup(); } catch (e) { warning = e.message; }
+    }
+    try {
+      await shell.trashItem(full);
+    } catch (e) {
+      return { ok: false, error: `Could not move ${file} to the Trash: ${e.message}` };
+    }
+    let retired = false;
+    if (backedUp && !warning) {
+      try { retired = runBackup().retired.includes(file); } catch (e) { warning = e.message; }
+    }
+    return { ok: true, name: file, retired, kept, warning };
+  });
+
   // Native open dialog -> return the parsed scene JSON.
   ipcMain.handle('loadSceneFile', async () => {
     const win = BrowserWindow.getFocusedWindow() || mainWindow;

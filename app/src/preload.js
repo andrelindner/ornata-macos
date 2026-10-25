@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('ornata', {
   listScenes: () => ipcRenderer.invoke('listScenes'),
   loadScene: (name) => ipcRenderer.invoke('loadScene', name),
   saveScene: (name, scene) => ipcRenderer.invoke('saveScene', name, scene),
+  // Asks for confirmation, moves the file to the Trash and backs up.
+  deleteScene: (name) => ipcRenderer.invoke('deleteScene', name),
   loadSceneFile: () => ipcRenderer.invoke('loadSceneFile'),
   saveSceneFile: (scene, suggested) => ipcRenderer.invoke('saveSceneFile', scene, suggested),
 

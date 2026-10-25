@@ -35,6 +35,11 @@ can paint any key any color.
   - Save the current colors, background and brightness as a named profile, or
     anywhere through a native **Save** dialog.
   - Load a saved profile, or any local `.json` through a native **Open** dialog.
+  - **Delete…** a saved profile after a confirmation. The file goes to the
+    Trash; if a backup folder is set, the app backs up right away and the
+    backup keeps the profile with its deletion date for the grace period, so
+    **Restore from Backup…** can bring it back. The default profile can only be
+    overwritten, not deleted.
   - Profiles live in `~/Library/Application Support/Ornata Lighting/profiles/`,
     outside the app bundle, so updates keep them.
   - On first launch the folder is filled with the bundled scenes.
@@ -146,7 +151,8 @@ Settings → **Backup** works like a folder backup in other macOS apps:
 - **Back Up Now** runs a backup and shows what it did.
 - **Restore from Backup…** picks a backup folder and shows its contents first:
   when and on which Mac it was made, the profiles (new, kept, or replaced), the
-  profiles in the grace period, and whether the settings come along. Existing
+  profiles in the grace period (with the date they were deleted and how long
+  they are kept), and whether the settings come along. Existing
   profiles are only replaced if you switch on **Overwrite existing profiles**.
   Picking the `profiles` or `deleted` subfolder of a backup by mistake opens the
   backup itself.
