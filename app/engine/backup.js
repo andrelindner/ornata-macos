@@ -25,7 +25,8 @@
 // single profile can be taken out by hand, even without this app.
 //
 // Up to v1.3.x the backup was a flat copy of the profile files in <folder>.
-// inspect() and restore() still read that format.
+// inspect() and restore() still read that format, also next to a manifest —
+// backup() never touches those files, so they can't age out of the folder.
 
 const fs = require('fs');
 const os = require('os');
@@ -37,6 +38,11 @@ const FORMAT_VERSION = 1;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 class BackupError extends Error {}
+
+// Profile files of the old flat format in the top level of dir.
+function legacyFiles(dir) {
+  return scenes.listScenes(dir).filter((f) => f !== MANIFEST);
+}
 
 function readManifest(dir) {
   const file = path.join(dir, MANIFEST);
@@ -163,6 +169,7 @@ function inspect(dir, profilesDir) {
   if (manifest) {
     const inBackup = new Set(scenes.listScenes(path.join(dir, 'profiles')));
     const inDeleted = new Set(scenes.listScenes(path.join(dir, 'deleted')));
+    const older = legacyFiles(dir).filter((n) => !inBackup.has(n));
     return {
       legacy: false,
       createdAt: manifest.createdAt,
@@ -172,13 +179,14 @@ function inspect(dir, profilesDir) {
       profiles: manifest.profiles
         .map((p) => path.basename(p.name || ''))
         .filter((n) => inBackup.has(n))
-        .map((name) => ({ name, existsLocally: local.has(name) })),
+        .map((name) => ({ name, existsLocally: local.has(name) }))
+        .concat(older.map((name) => ({ name, existsLocally: local.has(name), olderBackup: true }))),
       removedProfiles: manifest.removedProfiles
         .filter((r) => r && inDeleted.has(path.basename(r.name || '')))
         .map((r) => ({ name: path.basename(r.name), removedAt: r.removedAt, existsLocally: local.has(path.basename(r.name)) })),
     };
   }
-  const flat = scenes.listScenes(dir);
+  const flat = legacyFiles(dir);
   if (!flat.length) {
     throw new BackupError(`There is no backup in ${dir}. Expected the file “${MANIFEST}” or profile .json files.`);
   }
@@ -219,8 +227,11 @@ function restore(dir, { profilesDir, overwrite = false, restoreSettings = false,
     }
   };
 
-  for (const name of scenes.listScenes(srcDir)) copyIn(path.join(srcDir, name), name, result.restored);
+  for (const name of legacyFiles(srcDir)) copyIn(path.join(srcDir, name), name, result.restored);
   if (manifest) {
+    for (const name of legacyFiles(dir)) {
+      if (!fs.existsSync(path.join(srcDir, name))) copyIn(path.join(dir, name), name, result.restored);
+    }
     for (const raw of revive) {
       const name = path.basename(String(raw));
       const src = path.join(dir, 'deleted', name);

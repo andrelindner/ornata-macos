@@ -186,7 +186,9 @@ function renderRestoreProfiles() {
     const tag = p.existsLocally
       ? el("span", { className: "tag" + (overwrite ? " replace" : ""), textContent: overwrite ? "will be replaced" : "stays as it is" })
       : el("span", { className: "tag", textContent: "new" });
-    list.append(el("div", { className: "item" }, el("span", { className: "label", textContent: p.name }), tag));
+    const label = el("div", { className: "label" }, p.name);
+    if (p.olderBackup) label.append(el("div", { className: "caption", textContent: "from an older backup (version 1.3 or earlier)" }));
+    list.append(el("div", { className: "item" }, label, tag));
   }
 }
 
