@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# razer-ornata-macos (app) — obtain the native addon.
+# ornata-macos (app) — obtain the native addon.
 #
 # The Electron app reuses the addon from the sibling cli/ folder. This thin
 # wrapper just runs cli/setup.sh, which extracts addon.node out of the installed

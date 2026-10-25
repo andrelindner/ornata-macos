@@ -1,6 +1,6 @@
 'use strict';
 
-// razer-ornata-macos — shared device engine.
+// ornata-macos — shared device engine.
 //
 // Copyright (C) 2025 André Lindner
 //
@@ -14,7 +14,7 @@
 // FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // The device I/O in this file wraps the native addon (addon.node) borrowed from
-// razer-macos / librazermacos (also GPL). It centralises everything that talks
+// razer-macos / librazermacos (also GPL). It centralizes everything that talks
 // to the keyboard so that both the CLI (ornata.js) and the web GUI (server.js)
 // share one code path.
 
@@ -31,8 +31,8 @@ const ORNATA_PIDS = { 542: 'Ornata Chroma', 543: 'Ornata', 605: 'Ornata Chroma V
 // still usable as a generic mouse if it isn't listed here.
 const MOUSE_PIDS = { 153: 'Basilisk V3' };
 
-// A device-access error the caller can recognise: it means the Razer macOS app
-// (or something else) is holding the keyboard open exclusively.
+// A device-access error the caller can recognize: it means the Razer macOS app
+// (or something else) is holding the device open exclusively.
 class DeviceBusyError extends Error {
   constructor(message) {
     super(message);
@@ -41,9 +41,15 @@ class DeviceBusyError extends Error {
   }
 }
 
+function addonError(message) {
+  const e = new Error(message);
+  e.code = 'NO_ADDON';
+  return e;
+}
+
 function loadAddon() {
   if (!fs.existsSync(ADDON_PATH)) {
-    throw new Error(
+    throw addonError(
       'addon.node not found.\n' +
       'Run ./setup.sh once to copy it out of the installed "Razer macOS.app".'
     );
@@ -51,87 +57,104 @@ function loadAddon() {
   try {
     return require(ADDON_PATH);
   } catch (e) {
-    throw new Error('could not load addon.node: ' + e.message);
+    throw addonError('could not load addon.node: ' + e.message);
   }
 }
 
-function findKeyboard(addon) {
+function closeAll(addon) {
+  try { addon.closeAllDevices(); } catch (_) { /* ignore */ }
+}
+
+// All Razer devices the addon could open. None at all almost always means the
+// Razer macOS app holds them exclusively.
+function openDevices(addon) {
   let devices;
   try {
-    devices = addon.getAllDevices();
+    devices = addon.getAllDevices() || [];
   } catch (e) {
     throw new Error('getAllDevices failed: ' + e.message);
   }
-  const kbd = (devices || []).find((d) => ORNATA_PIDS[d.productId]);
-  if (!kbd) {
-    if (!devices || devices.length === 0) {
-      throw new DeviceBusyError(
-        'No Razer device could be opened.\n' +
-        'Quit the "Razer macOS" menu-bar app first — it holds the device open\n' +
-        '(exclusive access), which blocks this tool. Then try again.'
-      );
-    }
-    throw new Error('Ornata not found. Devices seen: ' + JSON.stringify(devices));
+  if (devices.length === 0) {
+    throw new DeviceBusyError(
+      'No Razer device could be opened.\n' +
+      'Quit the "Razer macOS" menu-bar app first — it holds the device open\n' +
+      '(exclusive access), which blocks this tool. Then try again.'
+    );
   }
+  return devices;
+}
+
+function findKeyboard(addon) {
+  const devices = openDevices(addon);
+  const kbd = devices.find((d) => ORNATA_PIDS[d.productId]);
+  if (!kbd) throw new Error('Ornata not found. Devices seen: ' + JSON.stringify(devices));
   return kbd;
 }
 
 // Find a Razer mouse. Prefers a known mouse PID; otherwise falls back to any
 // connected device that isn't the Ornata keyboard.
 function findMouse(addon) {
-  let devices;
-  try {
-    devices = addon.getAllDevices();
-  } catch (e) {
-    throw new Error('getAllDevices failed: ' + e.message);
-  }
-  let dev = (devices || []).find((d) => MOUSE_PIDS[d.productId]);
-  if (!dev) dev = (devices || []).find((d) => !ORNATA_PIDS[d.productId]);
-  if (!dev) {
-    if (!devices || devices.length === 0) {
-      throw new DeviceBusyError(
-        'No Razer device could be opened.\n' +
-        'Quit the "Razer macOS" menu-bar app first — it holds the device open\n' +
-        '(exclusive access), which blocks this tool. Then try again.'
-      );
-    }
-    throw new Error('No Razer mouse found. Devices seen: ' + JSON.stringify(devices));
-  }
+  const devices = openDevices(addon);
+  const dev = devices.find((d) => MOUSE_PIDS[d.productId])
+    || devices.find((d) => !ORNATA_PIDS[d.productId]);
+  if (!dev) throw new Error('No Razer mouse found. Devices seen: ' + JSON.stringify(devices));
   return dev;
+}
+
+function keyboardName(kbd) {
+  return ORNATA_PIDS[kbd.productId];
 }
 
 function mouseName(dev) {
   return MOUSE_PIDS[dev.productId] || `Razer mouse (0x${dev.productId.toString(16).padStart(4, '0')})`;
 }
 
-// Open the mouse, run fn(addon, dev), always close afterwards.
-function withMouse(fn) {
+// Open the devices, locate one with find(addon), run fn(addon, dev) and always
+// close afterwards. The return value of fn is passed through.
+function withDevice(find, fn) {
   const addon = loadAddon();
-  const dev = findMouse(addon);
   try {
-    return fn(addon, dev);
+    return fn(addon, find(addon));
   } finally {
-    try { addon.closeAllDevices(); } catch (_) { /* ignore */ }
+    closeAll(addon);
   }
 }
 
-// Probe for the mouse without changing anything (mirrors probe() for the kbd).
-function probeMouse() {
-  let addon;
+const withKeyboard = (fn) => withDevice(findKeyboard, fn);
+const withMouse = (fn) => withDevice(findMouse, fn);
+
+// Check that a device is reachable without changing anything. Returns
+//   { ok: true, ...describe(addon, dev) }
+//   { ok: false, code: 'DEVICE_BUSY'|'NO_ADDON'|'ERROR', message }
+function probeDevice(find, describe) {
   try {
-    addon = loadAddon();
-  } catch (e) {
-    return { ok: false, code: 'NO_ADDON', message: e.message };
-  }
-  try {
-    const dev = findMouse(addon);
-    let dpi;
-    try { dpi = addon.mouseGetDpi(dev.internalDeviceId); } catch (_) { dpi = null; }
-    return { ok: true, productId: dev.productId, name: mouseName(dev), internalDeviceId: dev.internalDeviceId, dpi };
+    return { ok: true, ...withDevice(find, describe) };
   } catch (e) {
     return { ok: false, code: e.code || 'ERROR', message: e.message };
+  }
+}
+
+function probe() {
+  return probeDevice(findKeyboard, (_addon, kbd) => ({
+    productId: kbd.productId, name: keyboardName(kbd), internalDeviceId: kbd.internalDeviceId,
+  }));
+}
+
+function probeMouse() {
+  return probeDevice(findMouse, (addon, dev) => {
+    let dpi;
+    try { dpi = addon.mouseGetDpi(dev.internalDeviceId); } catch (_) { dpi = null; }
+    return { productId: dev.productId, name: mouseName(dev), internalDeviceId: dev.internalDeviceId, dpi };
+  });
+}
+
+// Raw list of every Razer device the addon sees (for `ornata devices`).
+function listDevices() {
+  const addon = loadAddon();
+  try {
+    return addon.getAllDevices() || [];
   } finally {
-    try { addon.closeAllDevices(); } catch (_) { /* ignore */ }
+    closeAll(addon);
   }
 }
 
@@ -223,41 +246,12 @@ function setBrightness(addon, id, pct) {
   addon.KbdSetBrightness(id, parseBrightness(pct));
 }
 
-// Open the keyboard, run fn(addon, kbd), always close afterwards.
-// The return value of fn is passed through.
-function withKeyboard(fn) {
-  const addon = loadAddon();
-  const kbd = findKeyboard(addon);
-  try {
-    return fn(addon, kbd);
-  } finally {
-    try { addon.closeAllDevices(); } catch (_) { /* ignore */ }
-  }
-}
-
-// Probe for the keyboard without changing anything. Returns:
-//   { ok: true, productId, name, internalDeviceId }
-//   { ok: false, code: 'DEVICE_BUSY'|'NO_ADDON'|'ERROR', message }
-function probe() {
-  let addon;
-  try {
-    addon = loadAddon();
-  } catch (e) {
-    return { ok: false, code: 'NO_ADDON', message: e.message };
-  }
-  try {
-    const kbd = findKeyboard(addon);
-    return {
-      ok: true,
-      productId: kbd.productId,
-      name: ORNATA_PIDS[kbd.productId],
-      internalDeviceId: kbd.internalDeviceId,
-    };
-  } catch (e) {
-    return { ok: false, code: e.code || 'ERROR', message: e.message };
-  } finally {
-    try { addon.closeAllDevices(); } catch (_) { /* ignore */ }
-  }
+// Change only the keyboard brightness. Returns { name }.
+function applyBrightness(pct) {
+  return withKeyboard((addon, kbd) => {
+    setBrightness(addon, kbd.internalDeviceId, pct);
+    return { name: keyboardName(kbd) };
+  });
 }
 
 // Apply a scene-style spec to the keyboard. Optionally set brightness first.
@@ -267,7 +261,7 @@ function applySpec(spec) {
   return withKeyboard((addon, kbd) => {
     if (spec && spec.brightness !== undefined) setBrightness(addon, kbd.internalDeviceId, spec.brightness);
     applyFrame(addon, kbd.internalDeviceId, frame);
-    return { litCells, name: ORNATA_PIDS[kbd.productId] };
+    return { litCells, name: keyboardName(kbd) };
   });
 }
 
@@ -288,7 +282,7 @@ function storeStartupColor(color, restoreSpec) {
       if (restoreSpec.brightness !== undefined) setBrightness(addon, id, restoreSpec.brightness);
       applyFrame(addon, id, restore);
     }
-    return { name: ORNATA_PIDS[kbd.productId] };
+    return { name: keyboardName(kbd) };
   });
 }
 
@@ -309,12 +303,7 @@ function dominantColor(spec) {
 }
 
 module.exports = {
-  ROWS, COLS, ORNATA_PIDS, MOUSE_PIDS, ADDON_PATH,
-  DeviceBusyError,
-  loadAddon, findKeyboard,
-  parseColor, blankFrame, buildFrame, applyFrame,
-  parseBrightness, setBrightness,
-  withKeyboard, probe, applySpec,
-  storeStartupColor, dominantColor,
-  findMouse, mouseName, withMouse, probeMouse, applyMouse,
+  probe, applySpec, applyBrightness, storeStartupColor, dominantColor,
+  probeMouse, applyMouse,
+  listDevices,
 };

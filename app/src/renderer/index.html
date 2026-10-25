@@ -1,15 +1,15 @@
 <!DOCTYPE html>
 <!--
-  razer-ornata-macos — Electron desktop app, renderer UI.
+  ornata-macos — Electron desktop app, renderer UI.
   Copyright (C) 2025 André Lindner. GNU General Public License v2.0 or later.
   Self-contained: no external CDNs. Talks to the main process only via
-  window.razer.* (see preload.js) — never to Node or the engine directly.
+  window.ornata.* (see preload.js) — never to Node or the engine directly.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'">
-<title>Razer Ornata Lighting</title>
+<title>Ornata Lighting</title>
 <style>
   :root {
     --bg: #16171c; --panel: #1e2027; --panel2: #262933; --line: #33363f;
@@ -148,10 +148,10 @@
     </div>
 
     <div class="card">
-      <h2>Profiles &amp; scenes</h2>
+      <h2>Profiles</h2>
       <div class="row">
-        <label>Load bundled</label>
-        <select id="sceneSelect"><option value="">— choose a scene —</option></select>
+        <label>Load profile</label>
+        <select id="sceneSelect"><option value="">— choose a profile —</option></select>
         <button id="loadScene" type="button">Load</button>
       </div>
       <div class="row">
@@ -162,10 +162,10 @@
       <div class="row">
         <label>Save as</label>
         <input type="text" id="saveName" placeholder="my-profile" style="width:150px" spellcheck="false">
-        <button id="saveScene" type="button">Save to scenes/</button>
+        <button id="saveScene" type="button">Save profile</button>
         <button id="saveFile" type="button">Save to file…</button>
       </div>
-      <p class="hint">A profile stores the current colors, background and brightness. <b>Save to scenes/</b> writes it into the bundled <code>scenes/</code> folder; <b>Save to file…</b> saves it anywhere via a native dialog. Load it again with <b>Open .json…</b>.</p>
+      <p class="hint">A profile stores the current colors, background and brightness. <b>Save profile</b> keeps it in the app’s profiles folder (Settings → Show Profiles Folder); <b>Save to file…</b> saves it anywhere via a native dialog. Load it again with <b>Open .json…</b>.</p>
     </div>
 
     <div class="card">

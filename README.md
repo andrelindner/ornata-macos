@@ -1,4 +1,4 @@
-# razer-ornata-macos
+# ornata-macos
 
 Lighting control for the **Razer Ornata Chroma** keyboard (and a connected Razer
 mouse such as the **Basilisk V3**) on macOS — including Apple Silicon and macOS 26

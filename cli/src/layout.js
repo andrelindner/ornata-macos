@@ -90,7 +90,7 @@ function resolve(token) {
   throw new Error(`unknown key "${token}" (use a name, "row,col", or a group; see: ornata list)`);
 }
 
-// Named groups of keys — assign a colour to many keys at once.
+// Named groups of keys — assign a color to many keys at once.
 const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const GROUPS = {
   ALL: Object.keys(KEYS),
@@ -129,4 +129,30 @@ function expand(token, extraGroups) {
   return [resolve(raw)];
 }
 
-module.exports = { ROWS, COLS, KEYS, ALIASES, GROUPS, resolve, expand };
+// Short display labels for keys whose printed cap differs from the internal
+// name, so the visual keyboards (web GUI and desktop app) read naturally.
+const LABELS = {
+  BACKTICK: '`', MINUS: '-', EQUALS: '=', LBRACKET: '[', RBRACKET: ']', BACKSLASH: '\\',
+  SEMICOLON: ';', QUOTE: "'", COMMA: ',', PERIOD: '.', SLASH: '/',
+  N0: '0', N1: '1', N2: '2', N3: '3', N4: '4', N5: '5', N6: '6', N7: '7', N8: '8', N9: '9',
+  ESC: 'Esc', BACKSPACE: '⌫', TAB: 'Tab', CAPS: 'Caps', ENTER: 'Enter',
+  LSHIFT: 'Shift', RSHIFT: 'Shift', LCTRL: 'Ctrl', RCTRL: 'Ctrl',
+  LALT: 'Alt', RALT: 'Alt', LWIN: 'Cmd', FN: 'Fn', SPACE: 'Space',
+  UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→',
+  PRTSC: 'PrtSc', SCRLK: 'ScrLk', PAUSE: 'Pause',
+  INS: 'Ins', HOME: 'Home', PGUP: 'PgUp', DEL: 'Del', END: 'End', PGDN: 'PgDn',
+  NUMLOCK: 'Num', KP_DIV: '/', KP_MUL: '*', KP_MINUS: '-', KP_PLUS: '+',
+  KP_ENTER: 'Ent', KP_DEL: '.', KP0: '0', KP1: '1', KP2: '2', KP3: '3',
+  KP4: '4', KP5: '5', KP6: '6', KP7: '7', KP8: '8', KP9: '9',
+};
+
+// Everything a visual keyboard needs: matrix size, every key with its
+// [row, col] and label, plus the groups and aliases for client-side expansion.
+function layoutPayload() {
+  const keys = Object.entries(KEYS).map(([name, [row, col]]) => ({
+    name, row, col, label: LABELS[name] || name,
+  }));
+  return { rows: ROWS, cols: COLS, keys, groups: GROUPS, aliases: ALIASES };
+}
+
+module.exports = { ROWS, COLS, KEYS, GROUPS, expand, layoutPayload };

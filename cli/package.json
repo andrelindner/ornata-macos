@@ -1,6 +1,6 @@
 {
-  "name": "razer-ornata-macos",
-  "version": "1.0.0",
+  "name": "ornata-macos",
+  "version": "1.3.0",
   "description": "Per-key RGB lighting for the Razer Ornata Chroma on macOS (Apple Silicon, macOS 26 Tahoe tested).",
   "bin": {
     "ornata": "src/ornata.js",

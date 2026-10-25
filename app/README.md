@@ -1,4 +1,4 @@
-# Razer Ornata Lighting — desktop app
+# Ornata Lighting — desktop app
 
 A standalone **macOS desktop app** (Electron) for controlling the lighting of the
 **Razer Ornata Chroma** keyboard (per-key RGB) and a **Razer Basilisk V3** mouse.
@@ -10,7 +10,7 @@ and the same native addon (`addon.node`) — nothing about the USB protocol is
 reimplemented here. Because Electron's main process is Node, it `require`s that
 engine directly and drives the hardware from the main process; the window (the
 renderer) talks to it only over IPC (`contextIsolation: true`,
-`nodeIntegration: false`, a small typed `window.razer.*` API in `preload.js`).
+`nodeIntegration: false`, a small typed `window.ornata.*` API in `preload.js`).
 
 ## What it can do
 
@@ -21,13 +21,16 @@ renderer) talks to it only over IPC (`contextIsolation: true`,
   ARROWS, LETTERS, FKEYS, NUMROW, NUMPAD, MODIFIERS, NAV, ALL), a **background**
   color, and a **brightness** slider (0–100).
 - **Apply to keyboard**, **Turn off**, **Load default profile**, **Reset**.
-- **Profiles**: save the current colors + background + brightness to the bundled
-  `scenes/` folder *or* anywhere via a native **Save** dialog; load from the
-  bundled scenes *or* any local `.json` via a native **Open** dialog. Uses the
-  same scene JSON format as the CLI: `{ brightness?, background?, groups?, keys{} }`.
+- **Profiles**: save the current colors + background + brightness as a named
+  profile *or* anywhere via a native **Save** dialog; load a saved profile *or*
+  any local `.json` via a native **Open** dialog. Uses the same scene JSON format
+  as the CLI: `{ brightness?, background?, groups?, keys{} }`. Profiles live in
+  `~/Library/Application Support/Ornata Lighting/profiles/` (outside the app
+  bundle, so updates keep them); on first launch the folder is seeded with the
+  bundled scenes. *Settings → Show Profiles Folder* opens it.
 - **Mouse panel** for the Basilisk V3: static **Color**, **Spectrum**, **Wave**,
   **Off**, **Brightness** (0–100) and **DPI**, plus a status line. (There is no
-  wave-speed / colour-flow control — the hardware has no wave speed.)
+  wave-speed / color-flow control — the hardware has no wave speed.)
 - **Menu-bar (tray) icon** with: Show/Hide window, Apply Default Profile, Turn
   Keyboard Off, Settings, Quit. Closing the window keeps the app alive in the
   menu bar.
@@ -89,7 +92,7 @@ Expect `ok:true` for the Ornata Chroma and the Basilisk V3.
 
 ```bash
 cd app
-npm run pack          # electron-builder --dir       -> app/dist/mac-arm64/Razer Ornata Lighting.app
+npm run pack          # electron-builder --dir       -> app/dist/mac-arm64/Ornata Lighting.app
 # or the distributable installers:
 npm run dist          # electron-builder --mac dmg pkg -> app/dist/*.dmg  +  app/dist/*.pkg
 ```
@@ -99,13 +102,13 @@ the unpacked `mac-arm64/` app, blockmaps, debug logs — are removed
 automatically afterwards by the `postdist` script, so `dist/` only holds
 the two installers):
 
-- **`Razer Ornata Lighting-<version>-arm64.dmg`** — drag-to-Applications disk image.
-- **`Razer Ornata Lighting-<version>-arm64.pkg`** — installer package that puts the
+- **`Ornata Lighting-<version>-arm64.dmg`** — drag-to-Applications disk image.
+- **`Ornata Lighting-<version>-arm64.pkg`** — installer package that puts the
   app straight into `/Applications`.
 
 Both are **unsigned** (built with `identity: null`, no Apple Developer ID). They run
 locally, but macOS Gatekeeper will warn on first launch — right-click the app →
-*Open*, or run `xattr -dr com.apple.quarantine "/Applications/Razer Ornata Lighting.app"`.
+*Open*, or run `xattr -dr com.apple.quarantine "/Applications/Ornata Lighting.app"`.
 For real distribution the app would need to be signed and notarized.
 
 The build copies the reused engine and the addon into the packaged app via
@@ -127,14 +130,16 @@ builds are published on the repository's GitHub Releases page.
 ## Settings (menu-bar → Settings)
 
 **Settings** is available in the menu-bar (tray) menu and in the app's menu bar
-(persisted in `~/Library/Application Support/razer-ornata-macos-app/settings.json`):
+(persisted in `~/Library/Application Support/Ornata Lighting/settings.json`; versions
+up to 1.2.1 were called *Razer Ornata Lighting* — their settings folder is moved
+over automatically on first launch):
 
 - **Start at Login** — registers the app as a macOS login item.
 - **Start Minimized (Menu Bar Only)** — launch with no window and no Dock icon;
   the app lives in the menu bar. Combine with *Start at Login* so your lighting
   is active right after boot.
-- **Apply Default Profile on Launch** (default: on) — re-applies
-  `scenes/default.json` on every launch, so the keyboard lights up without a
+- **Apply Default Profile on Launch** (default: on) — re-applies the
+  `default` profile on every launch, so the keyboard lights up without a
   click (the keyboard forgets its per-key colors when it loses power). If the
   keyboard isn't ready yet at login, the app retries in the background.
 - **Re-apply Profile After Wake / Unlock** (default: on) — re-sends the current
@@ -153,8 +158,9 @@ builds are published on the repository's GitHub Releases page.
 - **Choose Backup Folder…** — pick a folder that receives a copy of every color
   profile. Setting it seeds the folder with the current profiles; afterwards
   every profile saved in the app is mirrored there automatically.
-  **Back Up Profiles Now** copies all bundled profiles again on demand, and
+  **Back Up Profiles Now** copies all saved profiles again on demand, and
   **Show Backup Folder** opens it in Finder.
+- **Show Profiles Folder** — opens the folder holding your saved profiles.
 
 ## App icon
 
@@ -164,7 +170,7 @@ red, orange and purple) — exactly what the app does. It is generated procedura
 assets, pure Pillow) by [`assets/make_icon.py`](assets/make_icon.py):
 
 ```bash
-python3 assets/make_icon.py         # writes the 1024px icon + tray templates
+python3 assets/make_icon.py out     # writes the 1024px icon + tray templates to out/
 # then rebuild the iconset -> assets/icon.icns with sips + iconutil
 ```
 

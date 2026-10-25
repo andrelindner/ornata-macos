@@ -1,13 +1,13 @@
 "use strict";
 
-// razer-ornata-macos — Electron desktop app, renderer logic.
+// ornata-macos — Electron desktop app, renderer logic.
 // Copyright (C) 2025 André Lindner. GNU General Public License v2.0 or later.
 //
 // Runs in an isolated renderer (no Node). All device I/O and file access go
-// through window.api.* (preload.js -> IPC -> the reused cli/ engine).
+// through window.ornata.* (preload.js -> IPC -> the reused cli/ engine).
 
 const $ = (s) => document.querySelector(s);
-const api = window.razer;
+const api = window.ornata;
 
 const state = {
   layout: null,          // from api.layout()
@@ -286,7 +286,7 @@ function wireControls() {
 
   $("#loadScene").onclick = async () => {
     const name = $("#sceneSelect").value;
-    if (!name) { toast("Choose a scene first", true); return; }
+    if (!name) { toast("Choose a profile first", true); return; }
     const d = await api.loadScene(name);
     if (!d.ok) { toast(d.error || "Load failed", true); return; }
     loadSceneObject(d.scene);
@@ -304,7 +304,7 @@ function wireControls() {
     if (!name) { toast("Enter a name to save", true); return; }
     const r = await api.saveScene(name, currentSpec());
     if (r.ok) {
-      toast(`Saved scenes/${r.name}`);
+      toast(`Saved profile ${r.name}`);
       const sel = $("#sceneSelect");
       if (![...sel.options].some(o => o.value === r.name)) {
         const o = document.createElement("option"); o.value = r.name; o.textContent = r.name; sel.appendChild(o);

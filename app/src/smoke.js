@@ -1,6 +1,6 @@
 'use strict';
 
-// razer-ornata-macos — Electron app device-layer smoke check.
+// ornata-macos — Electron app device-layer smoke check.
 // Copyright (C) 2025 André Lindner. GNU General Public License v2.0 or later.
 //
 // Proves the app's addon-path resolver reaches the reused cli/ engine and the

@@ -1,6 +1,6 @@
 'use strict';
 
-// razer-ornata-macos — Electron desktop app, main process.
+// ornata-macos — Electron desktop app, main process.
 //
 // Copyright (C) 2025 André Lindner
 //
@@ -23,85 +23,67 @@ const {
 const path = require('path');
 const fs = require('fs');
 
-// --- locate the reused engine + bundled scenes ------------------------------
-// Dev:      app/src -> ../../cli/src/engine.js and ../../cli/scenes
+// --- locate the reused cli/ modules ----------------------------------------
+// Dev:      app/src -> ../../cli/...
 // Packaged: extraResources copies cli/{src,scenes,addon.node} into
-//           <resources>/cli, and engine.js computes its addon path as
-//           path.join(__dirname,'..','addon.node') == <resources>/cli/addon.node,
-//           so the same relative-path logic keeps working once packaged.
-function enginePath() {
-  if (app.isPackaged) return path.join(process.resourcesPath, 'cli', 'src', 'engine.js');
-  return path.join(__dirname, '..', '..', 'cli', 'src', 'engine.js');
-}
-function layoutModulePath() {
-  if (app.isPackaged) return path.join(process.resourcesPath, 'cli', 'src', 'layout.js');
-  return path.join(__dirname, '..', '..', 'cli', 'src', 'layout.js');
-}
-function scenesDir() {
-  if (app.isPackaged) return path.join(process.resourcesPath, 'cli', 'scenes');
-  return path.join(__dirname, '..', '..', 'cli', 'scenes');
+//           <resources>/cli. engine.js finds its addon relative to itself
+//           (<resources>/cli/addon.node), so nothing else needs to know.
+function cliPath(...parts) {
+  const root = app.isPackaged
+    ? path.join(process.resourcesPath, 'cli')
+    : path.join(__dirname, '..', '..', 'cli');
+  return path.join(root, ...parts);
 }
 
 // A dev run gets its own name and settings folder so it can't be mistaken for
 // the installed app (login items, single-instance lock, settings.json).
 if (!app.isPackaged) {
-  app.setName('Razer Ornata Lighting Dev');
-  app.setPath('userData', path.join(app.getPath('appData'), 'razer-ornata-macos-app-dev'));
+  app.setName('Ornata Lighting Dev');
+  app.setPath('userData', path.join(app.getPath('appData'), 'ornata-macos-app-dev'));
 }
 
-const engine = require(enginePath());
-const { KEYS, GROUPS, ALIASES } = require(layoutModulePath());
+// Up to v1.2.1 the app was called "Razer Ornata Lighting". Move its settings
+// folder over once so settings and profiles survive the rename. Must run
+// before anything (e.g. the single-instance lock) creates the new folder.
+function migrateLegacyUserData() {
+  const legacy = path.join(app.getPath('appData'), 'Razer Ornata Lighting');
+  const current = app.getPath('userData');
+  if (!app.isPackaged || fs.existsSync(current) || !fs.existsSync(legacy)) return;
+  try { fs.renameSync(legacy, current); } catch (_) { /* start fresh instead */ }
+}
+migrateLegacyUserData();
 
-// Short display labels for keys whose printed cap differs from the internal
-// name (mirrors the labels used by the cli web GUI so the board reads naturally).
-const LABELS = {
-  BACKTICK: '`', MINUS: '-', EQUALS: '=', LBRACKET: '[', RBRACKET: ']', BACKSLASH: '\\',
-  SEMICOLON: ';', QUOTE: "'", COMMA: ',', PERIOD: '.', SLASH: '/',
-  N0: '0', N1: '1', N2: '2', N3: '3', N4: '4', N5: '5', N6: '6', N7: '7', N8: '8', N9: '9',
-  ESC: 'Esc', BACKSPACE: '⌫', TAB: 'Tab', CAPS: 'Caps', ENTER: 'Enter',
-  LSHIFT: 'Shift', RSHIFT: 'Shift', LCTRL: 'Ctrl', RCTRL: 'Ctrl',
-  LALT: 'Alt', RALT: 'Alt', LWIN: 'Cmd', FN: 'Fn', SPACE: 'Space',
-  UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→',
-  PRTSC: 'PrtSc', SCRLK: 'ScrLk', PAUSE: 'Pause',
-  INS: 'Ins', HOME: 'Home', PGUP: 'PgUp', DEL: 'Del', END: 'End', PGDN: 'PgDn',
-  NUMLOCK: 'Num', KP_DIV: '/', KP_MUL: '*', KP_MINUS: '-', KP_PLUS: '+',
-  KP_ENTER: 'Ent', KP_DEL: '.', KP0: '0', KP1: '1', KP2: '2', KP3: '3',
-  KP4: '4', KP5: '5', KP6: '6', KP7: '7', KP8: '8', KP9: '9',
-  M1: 'M1', M2: 'M2',
-};
+const engine = require(cliPath('src', 'engine.js'));
+const { layoutPayload } = require(cliPath('src', 'layout.js'));
+const scenes = require(cliPath('src', 'scenes.js'));
 
-function layoutPayload() {
-  const keys = Object.entries(KEYS).map(([name, [r, c]]) => ({
-    name, row: r, col: c, label: LABELS[name] || name,
-  }));
-  return { rows: engine.ROWS, cols: engine.COLS, keys, groups: GROUPS, aliases: ALIASES };
+const REPO_URL = 'https://github.com/andrelindner/ornata-macos';
+
+// --- profiles ---------------------------------------------------------------
+// User profiles live in userData/profiles, never inside the app bundle (which
+// is replaced on every update). The folder is seeded once with the bundled
+// scenes; the bundled default.json stays the fallback for "default".
+function profilesDir() {
+  return path.join(app.getPath('userData'), 'profiles');
 }
 
-// --- scenes helpers ---------------------------------------------------------
-function scenePath(name) {
-  const base = path.basename(String(name || ''));
-  if (!/^[\w.-]+$/.test(base)) throw new Error('bad scene name');
-  const withExt = base.endsWith('.json') ? base : base + '.json';
-  const dir = scenesDir();
-  const full = path.join(dir, withExt);
-  if (!full.startsWith(dir)) throw new Error('bad scene path');
-  return full;
-}
-function listScenes() {
-  try {
-    return fs.readdirSync(scenesDir()).filter((f) => f.endsWith('.json')).sort();
-  } catch (_) { return []; }
+function ensureProfilesDir() {
+  const dir = profilesDir();
+  if (fs.existsSync(dir)) return;
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of scenes.listScenes(scenes.BUNDLED_DIR)) {
+    fs.copyFileSync(path.join(scenes.BUNDLED_DIR, f), path.join(dir, f));
+  }
 }
 
-// Persist a clean scene object (same shape the cli web GUI saves).
-function cleanScene(scene) {
-  const s = scene || {};
-  const out = {};
-  if (s.brightness !== undefined) out.brightness = s.brightness;
-  out.background = s.background || '#000000';
-  if (s.groups && Object.keys(s.groups).length) out.groups = s.groups;
-  out.keys = s.keys || {};
-  return out;
+function readProfile(name) {
+  const own = scenes.scenePath(profilesDir(), name);
+  if (fs.existsSync(own)) return scenes.readScene(own);
+  return scenes.readScene(scenes.scenePath(scenes.BUNDLED_DIR, name));
+}
+
+function readDefaultProfile() {
+  try { return readProfile('default'); } catch (_) { return null; }
 }
 
 // --- app settings (persisted in userData/settings.json) ---------------------
@@ -142,16 +124,15 @@ function backupProfile(fullPath) {
   } catch (_) { /* backup is best-effort */ }
 }
 
-// Copy every bundled profile into the backup folder. Returns the count.
+// Copy every saved profile into the backup folder. Returns the count.
 function backupAllProfiles() {
   if (!config.backupDir) return 0;
   fs.mkdirSync(config.backupDir, { recursive: true });
-  let n = 0;
-  for (const f of listScenes()) {
-    fs.copyFileSync(path.join(scenesDir(), f), path.join(config.backupDir, f));
-    n += 1;
+  const files = scenes.listScenes(profilesDir());
+  for (const f of files) {
+    fs.copyFileSync(path.join(profilesDir(), f), path.join(config.backupDir, f));
   }
-  return n;
+  return files.length;
 }
 
 // The scene most recently applied to the keyboard (by launch auto-apply, the
@@ -162,6 +143,15 @@ function setCurrentScene(name, scene) {
   currentScene = { name: name || null, scene };
   refreshMenus(); // the startup-color menu shows the profile's main color
 }
+
+// Send a scene to the keyboard and remember it as the current one.
+function applyScene(name, scene) {
+  const r = engine.applySpec(scene);
+  setCurrentScene(name, scene);
+  return { litCells: r.litCells, device: r.name };
+}
+
+const offScene = () => ({ background: '#000000', keys: {} });
 
 // Wrap an engine call so a DEVICE_BUSY / error becomes a structured result the
 // renderer can display, instead of throwing across IPC.
@@ -179,18 +169,8 @@ function registerIpc() {
   ipcMain.handle('status', () => engine.probe());
   ipcMain.handle('mouseStatus', () => engine.probeMouse());
 
-  ipcMain.handle('applyKeyboard', (_e, spec) => guard(() => {
-    const r = engine.applySpec(spec || {});
-    setCurrentScene(null, spec || {});
-    return { litCells: r.litCells, device: r.name };
-  }));
-
-  ipcMain.handle('keyboardOff', () => guard(() => {
-    const off = { background: '#000000', keys: {} };
-    const r = engine.applySpec(off);
-    setCurrentScene(null, off);
-    return { device: r.name };
-  }));
+  ipcMain.handle('applyKeyboard', (_e, spec) => guard(() => applyScene(null, spec || {})));
+  ipcMain.handle('keyboardOff', () => guard(() => applyScene(null, offScene())));
 
   // The scene currently on the keyboard — the UI restores it when it opens.
   ipcMain.handle('currentScene', () => currentScene);
@@ -200,13 +180,11 @@ function registerIpc() {
     return { device: r.name };
   }));
 
-  ipcMain.handle('listScenes', () => ({ scenes: listScenes() }));
+  ipcMain.handle('listScenes', () => ({ scenes: scenes.listScenes(profilesDir()) }));
 
   ipcMain.handle('loadScene', (_e, name) => {
     try {
-      const full = scenePath(name);
-      const scene = JSON.parse(fs.readFileSync(full, 'utf8'));
-      return { ok: true, name: path.basename(full), scene };
+      return { ok: true, name: path.basename(scenes.scenePath(profilesDir(), name)), scene: readProfile(name) };
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -214,8 +192,8 @@ function registerIpc() {
 
   ipcMain.handle('saveScene', (_e, name, scene) => {
     try {
-      const full = scenePath(name);
-      fs.writeFileSync(full, JSON.stringify(cleanScene(scene), null, 2) + '\n', 'utf8');
+      const full = scenes.scenePath(profilesDir(), name);
+      scenes.writeScene(full, scene);
       backupProfile(full); // mirror into the configured backup folder
       return { ok: true, name: path.basename(full) };
     } catch (e) {
@@ -234,8 +212,7 @@ function registerIpc() {
     if (res.canceled || !res.filePaths.length) return { ok: false, canceled: true };
     try {
       const file = res.filePaths[0];
-      const scene = JSON.parse(fs.readFileSync(file, 'utf8'));
-      return { ok: true, name: path.basename(file), scene };
+      return { ok: true, name: path.basename(file), scene: scenes.readScene(file) };
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -251,7 +228,7 @@ function registerIpc() {
     });
     if (res.canceled || !res.filePath) return { ok: false, canceled: true };
     try {
-      fs.writeFileSync(res.filePath, JSON.stringify(cleanScene(scene), null, 2) + '\n', 'utf8');
+      scenes.writeScene(res.filePath, scene);
       return { ok: true, name: path.basename(res.filePath) };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -278,7 +255,7 @@ function createWindow(startHidden) {
     height: 900,
     minWidth: 760,
     minHeight: 560,
-    title: 'Razer Ornata Lighting',
+    title: app.name,
     backgroundColor: '#16171c',
     show: false,
     webPreferences: {
@@ -340,12 +317,7 @@ function setTrayTitleFlash(text) {
 }
 
 function turnKeyboardOff() {
-  trayApply(() => {
-    const off = { background: '#000000', keys: {} };
-    const r = engine.applySpec(off);
-    setCurrentScene(null, off);
-    return { device: r.name };
-  }, 'Keyboard off');
+  trayApply(() => applyScene(null, offScene()), 'Keyboard off');
   if (mainWindow) mainWindow.webContents.send('scene-loaded', currentScene);
 }
 
@@ -409,13 +381,7 @@ function startupColorSubmenuTemplate() {
 }
 
 function loadDefaultProfile() {
-  trayApply(() => {
-    const full = scenePath('default');
-    const scene = JSON.parse(fs.readFileSync(full, 'utf8'));
-    const r = engine.applySpec(scene);
-    setCurrentScene('default.json', scene);
-    return { litCells: r.litCells, device: r.name };
-  }, 'Default applied');
+  trayApply(() => applyScene('default.json', readProfile('default')), 'Default applied');
   if (mainWindow) mainWindow.webContents.send('scene-loaded', currentScene);
 }
 
@@ -494,6 +460,8 @@ function settingsSubmenuTemplate() {
       enabled: !!config.backupDir,
       click: () => shell.openPath(config.backupDir),
     },
+    { type: 'separator' },
+    { label: 'Show Profiles Folder', click: () => shell.openPath(profilesDir()) },
   ];
 }
 
@@ -522,7 +490,7 @@ function createTray() {
   img.addRepresentation({ scaleFactor: 2, width: 44, height: 44, buffer: Buffer.from(TRAY_ICON_44_B64, 'base64') });
   img.setTemplateImage(true);
   tray = new Tray(img);
-  tray.setToolTip('Razer Ornata Lighting');
+  tray.setToolTip(app.name);
   tray.setContextMenu(buildTrayMenu());
   // NOTE: no tray.on('click') handler — clicking must only open the menu.
   // A click handler that focuses the window steals focus from the just-opened
@@ -566,7 +534,7 @@ function buildAppMenu() {
     {
       role: 'help',
       submenu: [
-        { label: 'Project on GitHub', click: () => shell.openExternal('https://github.com/stickoking/razer-macos') },
+        { label: 'Project on GitHub', click: () => shell.openExternal(REPO_URL) },
       ],
     },
   ];
@@ -582,6 +550,7 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     loadConfig();
+    try { ensureProfilesDir(); } catch (_) { /* falls back to the bundled scenes */ }
     // In dev the bundle icon isn't applied, so set the dock icon from assets.
     if (!app.isPackaged && process.platform === 'darwin' && app.dock) {
       const devIcon = path.join(__dirname, '..', 'assets', 'icon.png');
@@ -601,8 +570,7 @@ if (!gotLock) {
     // Silent on failure (e.g. device not ready yet at login) — no dialogs at
     // login; retried in the background instead.
     if (config.applyOnLaunch) {
-      let scene = null;
-      try { scene = JSON.parse(fs.readFileSync(scenePath('default'), 'utf8')); } catch (_) { /* no default */ }
+      const scene = readDefaultProfile();
       if (scene) {
         setCurrentScene('default.json', scene);
         try {

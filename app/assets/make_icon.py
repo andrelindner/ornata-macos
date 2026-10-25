@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""App icon + logo for Razer Ornata Lighting.
+"""App icon + menu-bar glyph for Ornata Lighting.
 
-Icon: a 4x4 grid of keycaps on an anthracite squircle — a few keys lit in
+Icon: a 3x3 grid of keycaps on an anthracite squircle — a few keys lit in
 vivid per-key RGB colors (the app's whole point). Crisp, flat, no blur.
-Logo: the key mark + 'Ornata Lighting' wordmark.
+Tray: the same 3x3 grid as a black + alpha macOS template image.
+
+Usage: python3 make_icon.py [output_dir]   (needs Pillow; default: cwd)
+Writes keys_1024.png (-> icon.png / icon.icns via iconutil) and
+tray_22.png / tray_44.png (embedded as base64 in src/main.js).
 """
 import math
-from PIL import Image, ImageDraw, ImageFont
-
-SP = "/private/tmp/claude-501/-Users-andre-Applications-Projekte-Razor-Synapse/39b1b00c-ea5a-4e32-9891-56c24c8d3fbe/scratchpad/"
-FONT = "/System/Library/Fonts/Avenir Next.ttc"
+import os
+import sys
+from PIL import Image, ImageDraw
 
 S = 1024
 SS = 2
@@ -123,10 +126,12 @@ def build_tray(px):
 
 
 def main():
-    build_icon().save(SP + "keys_1024.png")
-    build_tray(22).save(SP + "tray_22.png")
-    build_tray(44).save(SP + "tray_44.png")
-    print("wrote keys_1024.png + tray")
+    out = sys.argv[1] if len(sys.argv) > 1 else "."
+    os.makedirs(out, exist_ok=True)
+    build_icon().save(os.path.join(out, "keys_1024.png"))
+    build_tray(22).save(os.path.join(out, "tray_22.png"))
+    build_tray(44).save(os.path.join(out, "tray_44.png"))
+    print(f"wrote keys_1024.png, tray_22.png, tray_44.png to {out}")
 
 
 main()

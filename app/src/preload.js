@@ -1,6 +1,6 @@
 'use strict';
 
-// razer-ornata-macos — Electron desktop app, preload bridge.
+// ornata-macos — Electron desktop app, preload bridge.
 //
 // Copyright (C) 2025 André Lindner
 //
@@ -15,7 +15,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('razer', {
+contextBridge.exposeInMainWorld('ornata', {
   // Layout + status
   layout: () => ipcRenderer.invoke('layout'),
   status: () => ipcRenderer.invoke('status'),
@@ -32,7 +32,7 @@ contextBridge.exposeInMainWorld('razer', {
   // Mouse: { mode:'static'|'spectrum'|'wave'|'off', color?, direction?, brightness?, dpi? }
   mouse: (opts) => ipcRenderer.invoke('mouse', opts),
 
-  // Scenes / profiles
+  // Profiles (stored in the app's profiles folder) and arbitrary .json files
   listScenes: () => ipcRenderer.invoke('listScenes'),
   loadScene: (name) => ipcRenderer.invoke('loadScene', name),
   saveScene: (name, scene) => ipcRenderer.invoke('saveScene', name, scene),

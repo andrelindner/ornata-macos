@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-// Per-key lighting for the Razer Ornata Chroma on macOS.
+// ornata-macos — command-line tool: per-key lighting for the Razer Ornata
+// Chroma (and a Razer mouse) on macOS. All device I/O lives in engine.js.
 //
 // Reuses the native addon (addon.node) from an installed razer-macos build,
 // which wraps librazermacos / OpenRazer. We talk to the keyboard through the
@@ -13,76 +14,65 @@
 //
 // A row payload is [ROW_ID, START_COL, STOP_COL, r,g,b, r,g,b, ...].
 
-const path = require('path');
-const fs = require('fs');
-const { ROWS, COLS, KEYS, GROUPS, expand } = require('./layout');
+const { ROWS, COLS, KEYS, GROUPS } = require('./layout');
+const { BUNDLED_DIR, scenePath, readScene } = require('./scenes');
 const {
-  ORNATA_PIDS,
-  parseColor, blankFrame, applyFrame,
-  setBrightness, withKeyboard, loadAddon,
-  applyMouse, probeMouse, storeStartupColor,
+  applySpec, applyBrightness, storeStartupColor,
+  applyMouse, probeMouse, listDevices,
 } = require('./engine');
 
 // ---- commands ---------------------------------------------------------------
 
+// Pull "--bright <n>" / "--brightness <n>" (and "--bg <hex>" if allowed) out of
+// an argument list. Returns { args, brightness, background }.
+function parseFlags(list, allowBg) {
+  const out = { args: [], brightness: undefined, background: undefined };
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (a === '--bright' || a === '--brightness') out.brightness = list[++i];
+    else if (allowBg && a === '--bg') out.background = list[++i];
+    else out.args.push(a);
+  }
+  return out;
+}
+
+function brightnessNote(b) {
+  return b !== undefined ? `, brightness ${b}%` : '';
+}
+
 function cmdApply(sceneArg) {
   if (!sceneArg) fail('usage: ornata apply <scene.json>');
-  const scene = JSON.parse(fs.readFileSync(sceneArg, 'utf8'));
-  const bg = parseColor(scene.background || '#000000');
-  const frame = blankFrame(bg);
-  // scene.groups: optional custom named groups, e.g. { "movement": ["W","A","S","D"] }
-  const extraGroups = scene.groups || {};
-  let litCells = 0;
-  for (const [key, color] of Object.entries(scene.keys || {})) {
-    const rgb = parseColor(color);
-    for (const [r, c] of expand(key, extraGroups)) { frame[r][c] = rgb; litCells++; }
-  }
-  withKeyboard((addon, kbd) => {
-    if (scene.brightness !== undefined) setBrightness(addon, kbd.internalDeviceId, scene.brightness);
-    applyFrame(addon, kbd.internalDeviceId, frame);
-    const b = scene.brightness !== undefined ? `, brightness ${scene.brightness}%` : '';
-    console.log(`Applied "${sceneArg}" (${litCells} cells${b}) to ${ORNATA_PIDS[kbd.productId]}.`);
-  });
+  const scene = readScene(sceneArg);
+  const r = applySpec(scene);
+  console.log(`Applied "${sceneArg}" (${r.litCells} cells${brightnessNote(scene.brightness)}) to ${r.name}.`);
 }
 
 // The shipped default profile — applied by setup.sh on first install and
-// re-applied any time with `ornata default`. Lives in the keyboard until changed.
+// re-applied any time with `ornata default`. Per-key colors are volatile: the
+// keyboard forgets them on power loss, so re-run this after a power cycle.
 function cmdDefault() {
-  cmdApply(path.join(__dirname, '..', 'scenes', 'default.json'));
+  cmdApply(scenePath(BUNDLED_DIR, 'default'));
 }
 
-function cmdKeys(pairs) {
-  // ornata key WASD ff0000 ARROWS 00ff00 J,K,L 0000ff  [--bg 101010] [--bright 80]
-  let bg = [0, 0, 0];
-  let brightness;
-  const args = [];
-  for (let i = 0; i < pairs.length; i++) {
-    if (pairs[i] === '--bg') { bg = parseColor(pairs[++i]); continue; }
-    if (pairs[i] === '--bright' || pairs[i] === '--brightness') { brightness = pairs[++i]; continue; }
-    args.push(pairs[i]);
-  }
+// ornata key WASD ff0000 ARROWS 00ff00 J,K,L 0000ff  [--bg 101010] [--bright 80]
+function cmdKeys(list) {
+  const { args, brightness, background } = parseFlags(list, true);
   if (args.length === 0 || args.length % 2 !== 0) {
     fail('usage: ornata key <KEY|GROUP|k1,k2,..> <hex> [...] [--bg <hex>] [--bright 0..100]');
   }
-  const frame = blankFrame(bg);
-  let litCells = 0;
+  const keys = {};
   for (let i = 0; i < args.length; i += 2) {
-    const rgb = parseColor(args[i + 1]);
-    for (const [r, c] of expand(args[i])) { frame[r][c] = rgb; litCells++; }
+    delete keys[args[i]]; // a repeated target moves to the end, so the last one wins
+    keys[args[i]] = args[i + 1];
   }
-  withKeyboard((addon, kbd) => {
-    if (brightness !== undefined) setBrightness(addon, kbd.internalDeviceId, brightness);
-    applyFrame(addon, kbd.internalDeviceId, frame);
-    console.log(`Lit ${litCells} key(s) on ${ORNATA_PIDS[kbd.productId]}.`);
-  });
+  const r = applySpec({ background, brightness, keys });
+  console.log(`Lit ${r.litCells} key(s) on ${r.name}.`);
 }
 
 function cmdBrightness(pct) {
   if (pct === undefined) fail('usage: ornata brightness <0..100>');
-  withKeyboard((addon, kbd) => {
-    setBrightness(addon, kbd.internalDeviceId, pct);
-    console.log(`Brightness set to ${pct}% on ${ORNATA_PIDS[kbd.productId]}.`);
-  });
+  const r = applyBrightness(pct);
+  console.log(`Brightness set to ${pct}% on ${r.name}.`);
 }
 
 function cmdGroups() {
@@ -92,27 +82,17 @@ function cmdGroups() {
   }
 }
 
-function cmdAll(args) {
+function cmdAll(list) {
+  const { args, brightness } = parseFlags(list, false);
   const hex = args[0];
   if (!hex) fail('usage: ornata all <hex> [--bright 0..100]');
-  let brightness;
-  for (let i = 1; i < args.length; i++) {
-    if (args[i] === '--bright' || args[i] === '--brightness') brightness = args[++i];
-  }
-  const frame = blankFrame(parseColor(hex));
-  withKeyboard((addon, kbd) => {
-    if (brightness !== undefined) setBrightness(addon, kbd.internalDeviceId, brightness);
-    applyFrame(addon, kbd.internalDeviceId, frame);
-    console.log(`Set whole keyboard to #${hex.replace(/^#/, '')}.`);
-  });
+  const r = applySpec({ background: hex, brightness });
+  console.log(`Set ${r.name} to #${hex.replace(/^#/, '')}${brightnessNote(brightness)}.`);
 }
 
 function cmdOff() {
-  const frame = blankFrame([0, 0, 0]);
-  withKeyboard((addon, kbd) => {
-    applyFrame(addon, kbd.internalDeviceId, frame);
-    console.log('All keys off (custom frame, everything black).');
-  });
+  const r = applySpec({});
+  console.log(`All keys off on ${r.name}.`);
 }
 
 // Store a single color in the keyboard's on-board memory: it is what the board
@@ -121,37 +101,36 @@ function cmdOff() {
 function cmdStartupColor(args) {
   const hex = args[0];
   if (!hex) fail('usage: ornata startup-color <hex> [scene.json]');
-  const scene = args[1] ? JSON.parse(fs.readFileSync(args[1], 'utf8')) : null;
+  const scene = args[1] ? readScene(args[1]) : null;
   const r = storeStartupColor(hex, scene);
   const then = scene ? `, then re-applied "${args[1]}"` : '';
   console.log(`Stored startup color #${hex.replace(/^#/, '')} on ${r.name}${then}.`);
 }
 
 // Light one cell at a time so you can map physical keys to coordinates.
+// Each step opens the keyboard, writes one frame and closes it again.
 function cmdWalk(delayArg) {
   const delay = Number(delayArg) || 400;
   const cells = [];
-  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) cells.push([r, c]);
-  withKeyboard((addon, kbd) => {
-    const id = kbd.internalDeviceId;
-    let i = 0;
-    console.log('Walking the matrix. Watch which key lights up; Ctrl+C to stop.');
-    const step = () => {
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) cells.push(`${r},${c}`);
+  console.log('Walking the matrix. Watch which key lights up; Ctrl+C to stop.');
+  let i = 0;
+  const step = () => {
+    try {
       if (i >= cells.length) {
-        applyFrame(addon, id, blankFrame([0, 0, 0]));
-        try { addon.closeAllDevices(); } catch (_) {}
-        console.log('Done.');
-        process.exit(0);
+        applySpec({});
+        console.log('\nDone.');
+        return;
       }
-      const [r, c] = cells[i++];
-      const frame = blankFrame([0, 0, 0]);
-      frame[r][c] = [0, 255, 0];
-      applyFrame(addon, id, frame);
-      process.stdout.write(`  lit [${r},${c}]        \r`);
+      const cell = cells[i++];
+      applySpec({ keys: { [cell]: '#00ff00' } });
+      process.stdout.write(`  lit [${cell}]        \r`);
       setTimeout(step, delay);
-    };
-    step();
-  });
+    } catch (e) {
+      fail(e.message);
+    }
+  };
+  step();
 }
 
 function cmdList() {
@@ -204,8 +183,7 @@ function cmdMouse(args) {
 }
 
 function cmdDevices() {
-  const addon = loadAddon();
-  console.log(JSON.stringify(addon.getAllDevices(), null, 2));
+  console.log(JSON.stringify(listDevices(), null, 2));
 }
 
 function fail(msg) {
@@ -214,7 +192,7 @@ function fail(msg) {
 }
 
 function usage() {
-  console.log(`razer-ornata-macos — per-key lighting for the Razer Ornata Chroma
+  console.log(`ornata-macos — per-key lighting for the Razer Ornata Chroma
 
 Usage:
   ornata key <KEY|GROUP|k1,k2> <hex> [...] [--bg <hex>] [--bright 0..100]
@@ -236,8 +214,8 @@ Usage:
   ornata devices                         list detected Razer devices
 
 Targets can be a key name (W, ESC, SPACE, LEFT), a symbol (';', '/'),
-a "row,col" coordinate, a group (WASD, ARROWS, LETTERS, FKEYS, NUMPAD,
-MODIFIERS, NAV, ALL), or a comma list (W,A,S,D).
+a "row,col" coordinate, a group (WASD, ARROWS, LETTERS, FKEYS, NUMROW,
+NUMPAD, MODIFIERS, NAV, ALL), or a comma list (W,A,S,D).
 Colors are hex: ff0000, #ff0000 or #f00. Brightness is a percentage 0..100.
 
 NOTE: quit the "Razer macOS" menu-bar app first — it holds the keyboard open.`);

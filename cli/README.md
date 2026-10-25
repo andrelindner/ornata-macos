@@ -1,4 +1,4 @@
-# razer-ornata-macos
+# ornata-macos — CLI & web GUI
 
 Per-key RGB lighting for the **Razer Ornata Chroma** (PID `0x021E`) on macOS —
 including Apple Silicon and macOS 26 (Tahoe), where it was developed and tested.
@@ -39,8 +39,8 @@ path to let you paint any key any color.
 ## Setup
 
 ```bash
-git clone https://github.com/andrelindner/razer-ornata-macos.git
-cd razer-ornata-macos/cli     # the command-line tool lives in cli/
+git clone https://github.com/andrelindner/ornata-macos.git
+cd ornata-macos/cli           # the command-line tool lives in cli/
 ./setup.sh                    # extracts addon.node from /Applications/Razer macOS.app
 ```
 
@@ -198,7 +198,7 @@ whatever the background sets.
 Straight after setup — and until you change it — the keyboard uses this profile
 ([`scenes/default.json`](scenes/default.json)):
 
-| Keys | Colour |
+| Keys | Color |
 |------|--------|
 | Main block: number row, letters, punctuation, Tab, Caps, Shift, Enter, Backspace, modifiers, Space | green `#0dbd00` |
 | Function row (F1–F12) | orange `#ff7a00` |
@@ -290,11 +290,12 @@ or load and edit it in the GUI. See [`scenes/`](scenes) and its
 
 The device logic lives in one shared module, [`src/engine.js`](src/engine.js)
 (find the keyboard, build a frame from a `{ background, keys, groups, brightness }`
-spec, apply it, set brightness, probe status). Both the CLI
+spec, apply it, set brightness, probe status, drive the mouse). Both the CLI
 ([`src/ornata.js`](src/ornata.js)) and the GUI server
-([`src/server.js`](src/server.js)) use it, so they behave identically. The
-key→coordinate table is in [`src/layout.js`](src/layout.js) and is reused
-everywhere — it is never duplicated.
+([`src/server.js`](src/server.js)) use it, so they behave identically — and so
+does the desktop app in [`../app`](../app). The key→coordinate table and key
+labels are in [`src/layout.js`](src/layout.js), reading/writing scene files is in
+[`src/scenes.js`](src/scenes.js); both are reused everywhere, never duplicated.
 
 ## How it works
 
@@ -318,7 +319,7 @@ Built on the shoulders of:
   addon and matrix mapping this tool reuses
 
 Because it derives from and links against that GPL code, this project is licensed
-under the **GNU General Public License v2.0 or later**. See [LICENSE](LICENSE).
+under the **GNU General Public License v2.0 or later**. See [LICENSE](../LICENSE).
 
 Not affiliated with or endorsed by Razer Inc. "Razer", "Ornata", and "Chroma"
 are trademarks of Razer Inc.

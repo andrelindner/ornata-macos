@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// razer-ornata-macos — local web GUI server.
+// ornata-macos — local web GUI server.
 //
 // Copyright (C) 2025 André Lindner
 //
@@ -23,15 +23,15 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
-const { KEYS, GROUPS, ALIASES } = require('./layout');
-const { ROWS, COLS, probe, applySpec, withKeyboard, setBrightness, ORNATA_PIDS, probeMouse, applyMouse } = require('./engine');
+const { layoutPayload } = require('./layout');
+const { BUNDLED_DIR, scenePath, listScenes, readScene, writeScene } = require('./scenes');
+const { probe, applySpec, probeMouse, applyMouse } = require('./engine');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.ORNATA_GUI_PORT) || 8787;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-const SCENES_DIR = path.join(__dirname, '..', 'scenes');
 
 // --- helpers ----------------------------------------------------------------
 
@@ -75,7 +75,7 @@ function serveStatic(res, urlPath) {
   // Only ever serve from PUBLIC_DIR; block traversal.
   const rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
   const full = path.join(PUBLIC_DIR, rel);
-  if (!full.startsWith(PUBLIC_DIR)) { sendJson(res, 403, { error: 'forbidden' }); return; }
+  if (!full.startsWith(PUBLIC_DIR + path.sep)) { sendJson(res, 403, { error: 'forbidden' }); return; }
   fs.readFile(full, (err, buf) => {
     if (err) { sendJson(res, 404, { error: 'not found' }); return; }
     const ext = path.extname(full).toLowerCase();
@@ -84,50 +84,7 @@ function serveStatic(res, urlPath) {
   });
 }
 
-// Safe scene name -> absolute path inside scenes/.
-function scenePath(name) {
-  const base = path.basename(String(name || ''));
-  if (!/^[\w.-]+$/.test(base)) throw new Error('bad scene name');
-  const withExt = base.endsWith('.json') ? base : base + '.json';
-  const full = path.join(SCENES_DIR, withExt);
-  if (!full.startsWith(SCENES_DIR)) throw new Error('bad scene path');
-  return full;
-}
-
-function listScenes() {
-  try {
-    return fs.readdirSync(SCENES_DIR)
-      .filter((f) => f.endsWith('.json'))
-      .sort();
-  } catch (_) { return []; }
-}
-
 // --- API --------------------------------------------------------------------
-
-// The visual keyboard needs, per key: name, [row,col], and a short label.
-// Labels for keys whose display differs from their internal name.
-const LABELS = {
-  BACKTICK: '`', MINUS: '-', EQUALS: '=', LBRACKET: '[', RBRACKET: ']', BACKSLASH: '\\',
-  SEMICOLON: ';', QUOTE: "'", COMMA: ',', PERIOD: '.', SLASH: '/',
-  N0: '0', N1: '1', N2: '2', N3: '3', N4: '4', N5: '5', N6: '6', N7: '7', N8: '8', N9: '9',
-  ESC: 'Esc', BACKSPACE: '⌫', TAB: 'Tab', CAPS: 'Caps', ENTER: 'Enter',
-  LSHIFT: 'Shift', RSHIFT: 'Shift', LCTRL: 'Ctrl', RCTRL: 'Ctrl',
-  LALT: 'Alt', RALT: 'Alt', LWIN: 'Cmd', FN: 'Fn', SPACE: 'Space',
-  UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→',
-  PRTSC: 'PrtSc', SCRLK: 'ScrLk', PAUSE: 'Pause',
-  INS: 'Ins', HOME: 'Home', PGUP: 'PgUp', DEL: 'Del', END: 'End', PGDN: 'PgDn',
-  NUMLOCK: 'Num', KP_DIV: '/', KP_MUL: '*', KP_MINUS: '-', KP_PLUS: '+',
-  KP_ENTER: 'Ent', KP_DEL: '.', KP0: '0', KP1: '1', KP2: '2', KP3: '3',
-  KP4: '4', KP5: '5', KP6: '6', KP7: '7', KP8: '8', KP9: '9',
-  M1: 'M1', M2: 'M2',
-};
-
-function layoutPayload() {
-  const keys = Object.entries(KEYS).map(([name, [r, c]]) => ({
-    name, row: r, col: c, label: LABELS[name] || name,
-  }));
-  return { rows: ROWS, cols: COLS, keys, groups: GROUPS, aliases: ALIASES };
-}
 
 // The spec most recently applied to the keyboard in this server session. The
 // device can't be read back, so this is what the page loads on open instead of
@@ -151,13 +108,13 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && p === '/api/scenes') {
-    return sendJson(res, 200, { scenes: listScenes() });
+    return sendJson(res, 200, { scenes: listScenes(BUNDLED_DIR) });
   }
 
   if (req.method === 'GET' && p === '/api/scene') {
     try {
-      const full = scenePath(url.searchParams.get('name'));
-      const scene = JSON.parse(fs.readFileSync(full, 'utf8'));
+      const full = scenePath(BUNDLED_DIR, url.searchParams.get('name'));
+      const scene = readScene(full);
       return sendJson(res, 200, { name: path.basename(full), scene });
     } catch (e) {
       return sendJson(res, 404, { error: e.message });
@@ -170,19 +127,6 @@ async function handleApi(req, res, url) {
       const result = applySpec(spec);
       currentScene = { name: null, scene: spec };
       return sendJson(res, 200, { ok: true, litCells: result.litCells, device: result.name });
-    } catch (e) {
-      return sendJson(res, 200, { ok: false, code: e.code || 'ERROR', error: e.message });
-    }
-  }
-
-  if (req.method === 'POST' && p === '/api/brightness') {
-    const body = await readBody(req);
-    try {
-      const result = withKeyboard((addon, kbd) => {
-        setBrightness(addon, kbd.internalDeviceId, body.brightness);
-        return ORNATA_PIDS[kbd.productId];
-      });
-      return sendJson(res, 200, { ok: true, device: result });
     } catch (e) {
       return sendJson(res, 200, { ok: false, code: e.code || 'ERROR', error: e.message });
     }
@@ -216,14 +160,8 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && p === '/api/save') {
     const body = await readBody(req);
     try {
-      const full = scenePath(body.name);
-      // Persist a clean scene object.
-      const scene = {};
-      if (body.scene && body.scene.brightness !== undefined) scene.brightness = body.scene.brightness;
-      scene.background = (body.scene && body.scene.background) || '#000000';
-      if (body.scene && body.scene.groups && Object.keys(body.scene.groups).length) scene.groups = body.scene.groups;
-      scene.keys = (body.scene && body.scene.keys) || {};
-      fs.writeFileSync(full, JSON.stringify(scene, null, 2) + '\n', 'utf8');
+      const full = scenePath(BUNDLED_DIR, body.name);
+      writeScene(full, body.scene);
       return sendJson(res, 200, { ok: true, name: path.basename(full) });
     } catch (e) {
       return sendJson(res, 400, { ok: false, error: e.message });
@@ -253,11 +191,11 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   const urlStr = `http://${HOST}:${PORT}/`;
-  console.log('razer-ornata-macos GUI running at ' + urlStr);
+  console.log('ornata-macos GUI running at ' + urlStr);
   console.log('Press Ctrl+C to stop.');
   console.log('NOTE: quit the "Razer macOS" menu-bar app first — it holds the keyboard open.');
   if (process.env.ORNATA_GUI_NO_OPEN !== '1') {
-    exec('open ' + JSON.stringify(urlStr), () => { /* best effort */ });
+    execFile('open', [urlStr], () => { /* best effort */ });
   }
 });
 
