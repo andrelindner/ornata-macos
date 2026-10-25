@@ -87,7 +87,7 @@ function resolve(token) {
   const name = raw.toUpperCase();
   const resolved = ALIASES[name] ? ALIASES[name] : (ALIASES[raw] || name);
   if (KEYS[resolved]) return KEYS[resolved];
-  throw new Error(`unknown key "${token}" (use a name, "row,col", or a group; see: ornata list)`);
+  throw new Error(`unknown key "${token}" (use a key name, "row,col", or a group)`);
 }
 
 // Named groups of keys — assign a color to many keys at once.
@@ -130,7 +130,7 @@ function expand(token, extraGroups) {
 }
 
 // Short display labels for keys whose printed cap differs from the internal
-// name, so the visual keyboards (web GUI and desktop app) read naturally.
+// name, so the app's visual keyboard reads naturally.
 const LABELS = {
   BACKTICK: '`', MINUS: '-', EQUALS: '=', LBRACKET: '[', RBRACKET: ']', BACKSLASH: '\\',
   SEMICOLON: ';', QUOTE: "'", COMMA: ',', PERIOD: '.', SLASH: '/',
@@ -155,4 +155,4 @@ function layoutPayload() {
   return { rows: ROWS, cols: COLS, keys, groups: GROUPS, aliases: ALIASES };
 }
 
-module.exports = { ROWS, COLS, KEYS, GROUPS, expand, layoutPayload };
+module.exports = { ROWS, COLS, expand, layoutPayload };

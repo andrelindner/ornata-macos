@@ -11,13 +11,12 @@
 // Public License for more details.
 //
 // A scene is a small JSON file { brightness?, background?, groups?, keys }.
-// Shared by the web GUI server and the desktop app so both read, list and
-// write scene folders the same way.
+// The app's bundled scenes and the user's profiles folder both use it.
 
 const fs = require('fs');
 const path = require('path');
 
-// The scenes shipped with the project (cli/scenes).
+// The scenes shipped with the app (app/scenes, packaged: <resources>/scenes).
 const BUNDLED_DIR = path.join(__dirname, '..', 'scenes');
 
 // Safe scene name -> absolute path of "<name>.json" inside `dir`.

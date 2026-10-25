@@ -15,8 +15,8 @@
 //
 // The device I/O in this file wraps the native addon (addon.node) borrowed from
 // razer-macos / librazermacos (also GPL). It centralizes everything that talks
-// to the keyboard so that both the CLI (ornata.js) and the web GUI (server.js)
-// share one code path.
+// to the keyboard and mouse. Plain Node (no Electron): the app's main process
+// requires it, and so does the headless smoke check (src/smoke.js).
 
 const path = require('path');
 const fs = require('fs');
@@ -148,16 +148,6 @@ function probeMouse() {
   });
 }
 
-// Raw list of every Razer device the addon sees (for `ornata devices`).
-function listDevices() {
-  const addon = loadAddon();
-  try {
-    return addon.getAllDevices() || [];
-  } finally {
-    closeAll(addon);
-  }
-}
-
 // Apply a lighting effect / setting to the mouse. `opts`:
 //   { mode: 'static'|'spectrum'|'wave'|'off', color?, direction?, brightness?, dpi? }
 // The mouse is driven as a single lighting group (the addon's "logo" mode set),
@@ -246,13 +236,6 @@ function setBrightness(addon, id, pct) {
   addon.KbdSetBrightness(id, parseBrightness(pct));
 }
 
-// Change only the keyboard brightness. Returns { name }.
-function applyBrightness(pct) {
-  return withKeyboard((addon, kbd) => {
-    setBrightness(addon, kbd.internalDeviceId, pct);
-    return { name: keyboardName(kbd) };
-  });
-}
 
 // Apply a scene-style spec to the keyboard. Optionally set brightness first.
 // Returns { litCells, name } (device product name).
@@ -303,7 +286,6 @@ function dominantColor(spec) {
 }
 
 module.exports = {
-  probe, applySpec, applyBrightness, storeStartupColor, dominantColor,
+  probe, applySpec, storeStartupColor, dominantColor,
   probeMouse, applyMouse,
-  listDevices,
 };

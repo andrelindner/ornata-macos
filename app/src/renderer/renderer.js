@@ -4,7 +4,7 @@
 // Copyright (C) 2025 André Lindner. GNU General Public License v2.0 or later.
 //
 // Runs in an isolated renderer (no Node). All device I/O and file access go
-// through window.ornata.* (preload.js -> IPC -> the reused cli/ engine).
+// through window.ornata.* (preload.js -> IPC -> the device engine in engine/).
 
 const $ = (s) => document.querySelector(s);
 const api = window.ornata;
@@ -41,7 +41,7 @@ function normHex(v) {
   return "#" + h.toLowerCase();
 }
 
-// --- client-side token expansion (mirrors cli/src/layout.js) ----------------
+// --- client-side token expansion (mirrors engine/layout.js) ---------------
 function resolveName(token) {
   const raw = String(token).trim();
   const coord = raw.match(/^(\d+)\s*,\s*(\d+)$/);

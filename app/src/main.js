@@ -13,9 +13,9 @@
 // ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 // FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
-// The main process is Node, so it requires the proven cli/ engine directly and
-// drives the keyboard/mouse from here. The renderer talks to it only over IPC
-// (see preload.js). We never run the cli's HTTP server.
+// The main process is Node, so it requires the device engine (engine/)
+// directly and drives the keyboard/mouse from here. The renderer talks to it
+// only over IPC (see preload.js).
 
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, dialog, nativeImage, shell, powerMonitor,
@@ -23,15 +23,14 @@ const {
 const path = require('path');
 const fs = require('fs');
 
-// --- locate the reused cli/ modules ----------------------------------------
-// Dev:      app/src -> ../../cli/...
-// Packaged: extraResources copies cli/{src,scenes,addon.node} into
-//           <resources>/cli. engine.js finds its addon relative to itself
-//           (<resources>/cli/addon.node), so nothing else needs to know.
-function cliPath(...parts) {
-  const root = app.isPackaged
-    ? path.join(process.resourcesPath, 'cli')
-    : path.join(__dirname, '..', '..', 'cli');
+// --- locate the device engine -----------------------------------------------
+// The engine, the bundled scenes and the native addon stay outside app.asar
+// (a native .node module can't load from inside it):
+// Dev:      app/{engine,scenes,addon.node}
+// Packaged: extraResources copies them to <resources>/{engine,scenes,addon.node}.
+// engine.js finds its addon relative to itself, so nothing else needs to know.
+function corePath(...parts) {
+  const root = app.isPackaged ? process.resourcesPath : path.join(__dirname, '..');
   return path.join(root, ...parts);
 }
 
@@ -56,9 +55,9 @@ function migrateLegacySettings() {
   } catch (_) { /* start with defaults instead */ }
 }
 
-const engine = require(cliPath('src', 'engine.js'));
-const { layoutPayload } = require(cliPath('src', 'layout.js'));
-const scenes = require(cliPath('src', 'scenes.js'));
+const engine = require(corePath('engine', 'engine.js'));
+const { layoutPayload } = require(corePath('engine', 'layout.js'));
+const scenes = require(corePath('engine', 'scenes.js'));
 
 const REPO_URL = 'https://github.com/andrelindner/ornata-macos';
 
