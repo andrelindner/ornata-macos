@@ -386,8 +386,9 @@ function wireControls() {
     if (r.canceled) return;
     if (!r.ok) { toast(r.error || "Delete failed", true); return; }
     await fillSceneSelect();
-    if (r.warning) toast(`Deleted ${r.name} — backup failed: ${r.warning}`, true);
-    else toast(r.retired ? `Deleted ${r.name} — the backup keeps it ${r.kept}` : `Deleted ${r.name} — moved to the Trash`);
+    const shown = r.name.replace(/\.json$/, "");
+    if (r.warning) toast(`Deleted ${shown}. The backup failed: ${r.warning}`, true);
+    else toast(`Deleted ${shown}`);
   };
   $("#loadFile").onclick = async () => {
     const d = await api.loadSceneFile();

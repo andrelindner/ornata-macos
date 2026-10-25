@@ -265,14 +265,17 @@ function registerIpc() {
     if (!fs.existsSync(full)) return { ok: false, error: `${file} doesn’t exist anymore.` };
 
     const days = config.backupRetentionDays;
-    const kept = days > 0 ? `for ${plural(days, '1 day', 'days')}` : 'until you remove it';
     const backedUp = !!config.backupDir && fs.existsSync(config.backupDir);
+    let detail = 'The profile moves to the Trash.';
+    if (backedUp) {
+      detail += days > 0
+        ? ` You can restore it from the backup for ${plural(days, '1 day', 'days')}.`
+        : ' You can restore it from the backup at any time.';
+    }
     const { response } = await dialog.showMessageBox(mainWindow, {
       type: 'warning',
-      message: `Delete the profile “${file}”?`,
-      detail: backedUp
-        ? `It moves to the Trash. The backup keeps a copy ${kept}; bring it back with Settings → Backup → Restore from Backup…`
-        : 'It moves to the Trash. No backup folder is reachable, so the app can’t restore it — only the Trash can.',
+      message: `Delete “${file.replace(/\.json$/, '')}”?`,
+      detail,
       buttons: ['Delete', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
@@ -288,11 +291,10 @@ function registerIpc() {
     } catch (e) {
       return { ok: false, error: `Could not move ${file} to the Trash: ${e.message}` };
     }
-    let retired = false;
     if (backedUp && !warning) {
-      try { retired = runBackup().retired.includes(file); } catch (e) { warning = e.message; }
+      try { runBackup(); } catch (e) { warning = e.message; }
     }
-    return { ok: true, name: file, retired, kept, warning };
+    return { ok: true, name: file, warning };
   });
 
   // Native open dialog -> return the parsed scene JSON.
