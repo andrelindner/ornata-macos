@@ -1,7 +1,7 @@
 {
   "name": "razer-ornata-macos-app",
   "productName": "Razer Ornata Lighting",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Standalone macOS desktop app (Electron) for per-key RGB lighting of the Razer Ornata Chroma and a Razer Basilisk V3 mouse. Reuses the cli/ engine and native addon.",
   "author": "André Lindner",
   "license": "GPL-2.0-or-later",
@@ -11,7 +11,7 @@
     "smoke": "node src/smoke.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --mac dmg pkg",
-    "postdist": "cd dist && rm -rf mac-arm64 builder-debug.yml de.lindner.razer-ornata-macos.plist .DS_Store *.blockmap"
+    "postdist": "cd dist && rm -rf mac-arm64 builder-debug.yml de.lindner.razer-ornata-macos.plist .DS_Store *.blockmap && find . -maxdepth 1 \\( -name '*.dmg' -o -name '*.pkg' \\) ! -name \"*-$npm_package_version-*\" -delete"
   },
   "build": {
     "appId": "de.lindner.razer-ornata-macos",

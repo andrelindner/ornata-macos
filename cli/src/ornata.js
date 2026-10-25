@@ -20,7 +20,7 @@ const {
   ORNATA_PIDS,
   parseColor, blankFrame, applyFrame,
   setBrightness, withKeyboard, loadAddon,
-  applyMouse, probeMouse,
+  applyMouse, probeMouse, storeStartupColor,
 } = require('./engine');
 
 // ---- commands ---------------------------------------------------------------
@@ -113,6 +113,18 @@ function cmdOff() {
     applyFrame(addon, kbd.internalDeviceId, frame);
     console.log('All keys off (custom frame, everything black).');
   });
+}
+
+// Store a single color in the keyboard's on-board memory: it is what the board
+// shows at power-on, before anything re-sends a per-key profile. Optionally
+// re-apply a scene straight after so the current lighting stays as it was.
+function cmdStartupColor(args) {
+  const hex = args[0];
+  if (!hex) fail('usage: ornata startup-color <hex> [scene.json]');
+  const scene = args[1] ? JSON.parse(fs.readFileSync(args[1], 'utf8')) : null;
+  const r = storeStartupColor(hex, scene);
+  const then = scene ? `, then re-applied "${args[1]}"` : '';
+  console.log(`Stored startup color #${hex.replace(/^#/, '')} on ${r.name}${then}.`);
 }
 
 // Light one cell at a time so you can map physical keys to coordinates.
@@ -212,6 +224,10 @@ Usage:
   ornata all <hex> [--bright 0..100]     set the whole keyboard to one color
   ornata brightness <0..100>             set keyboard brightness only
   ornata off                             turn all keys off
+  ornata startup-color <hex> [scene.json]
+                                         store a color in the keyboard's own memory,
+                                         shown at power-on (per-key colors can't be
+                                         stored); optionally re-apply a scene after
   ornata mouse <color <hex>|spectrum|wave [1|2]|off|brightness <0..100>|dpi <n>|info>
                                          control a connected Razer mouse (Basilisk V3)
   ornata groups                          list built-in key groups
@@ -236,6 +252,7 @@ function main() {
       case 'key': return cmdKeys(rest);
       case 'all': return cmdAll(rest);
       case 'off': return cmdOff();
+      case 'startup-color': return cmdStartupColor(rest);
       case 'brightness':
       case 'bright': return cmdBrightness(rest[0]);
       case 'groups': return cmdGroups();

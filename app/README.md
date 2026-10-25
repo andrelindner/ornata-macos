@@ -29,7 +29,10 @@ renderer) talks to it only over IPC (`contextIsolation: true`,
   **Off**, **Brightness** (0–100) and **DPI**, plus a status line. (There is no
   wave-speed / colour-flow control — the hardware has no wave speed.)
 - **Menu-bar (tray) icon** with: Show/Hide window, Apply Default Profile, Turn
-  Keyboard Off, Quit. Closing the window keeps the app alive in the menu bar.
+  Keyboard Off, Settings, Quit. Closing the window keeps the app alive in the
+  menu bar.
+- **Keeps the lighting alive**: re-applies the profile after wake/unlock and can
+  store a power-on color in the keyboard (see [Settings](#settings-menu-bar--settings)).
 - A device **status indicator**; when the driver reports the device is busy it
   tells you to quit the Razer macOS app first.
 
@@ -123,8 +126,8 @@ builds are published on the repository's GitHub Releases page.
 
 ## Settings (menu-bar → Settings)
 
-The tray menu has a **Settings** submenu (persisted in
-`~/Library/Application Support/razer-ornata-macos-app/settings.json`):
+**Settings** is available in the menu-bar (tray) menu and in the app's menu bar
+(persisted in `~/Library/Application Support/razer-ornata-macos-app/settings.json`):
 
 - **Start at Login** — registers the app as a macOS login item.
 - **Start Minimized (Menu Bar Only)** — launch with no window and no Dock icon;
@@ -132,7 +135,21 @@ The tray menu has a **Settings** submenu (persisted in
   is active right after boot.
 - **Apply Default Profile on Launch** (default: on) — re-applies
   `scenes/default.json` on every launch, so the keyboard lights up without a
-  click (the keyboard forgets its per-key colors when it loses power).
+  click (the keyboard forgets its per-key colors when it loses power). If the
+  keyboard isn't ready yet at login, the app retries in the background.
+- **Re-apply Profile After Wake / Unlock** (default: on) — re-sends the current
+  profile a few seconds after the Mac wakes from sleep or the screen is
+  unlocked. Per-key colors only live in the keyboard's volatile memory; across
+  sleep — especially behind a monitor/KVM USB hub — single LEDs can come back
+  without their color. This puts them back without a click.
+- **Startup Color (Stored on Keyboard)** — stores one color in the keyboard's
+  on-board memory; the board shows it at power-on, before macOS and this app
+  run. Choose the main color of the current profile, a preset, or *Off*. The
+  current per-key profile is restored right after, so nothing visibly changes.
+  Per-key colors can't be stored on the Ornata Chroma — that's a hardware
+  limit; on Windows, Synapse re-sends them in software just like this app.
+  This writes the keyboard's flash memory, so it only happens when you pick a
+  color.
 - **Choose Backup Folder…** — pick a folder that receives a copy of every color
   profile. Setting it seeds the folder with the current profiles; afterwards
   every profile saved in the app is mirrored there automatically.
@@ -142,8 +159,8 @@ The tray menu has a **Settings** submenu (persisted in
 ## App icon
 
 The icon (which doubles as the logo — no wordmark) is a 3x3 grid of keycaps on
-an anthracite squircle with two keys lit in per-key RGB colors (green and
-purple) — exactly what the app does. It is generated procedurally (no external
+an anthracite squircle with five keys lit in per-key RGB colors (green, blue,
+red, orange and purple) — exactly what the app does. It is generated procedurally (no external
 assets, pure Pillow) by [`assets/make_icon.py`](assets/make_icon.py):
 
 ```bash

@@ -18,7 +18,7 @@
 // (see preload.js). We never run the cli's HTTP server.
 
 const {
-  app, BrowserWindow, Tray, Menu, ipcMain, dialog, nativeImage, shell,
+  app, BrowserWindow, Tray, Menu, ipcMain, dialog, nativeImage, shell, powerMonitor,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -102,7 +102,13 @@ function cleanScene(scene) {
 //                 "Start at Login" so profiles are active right after boot.
 // applyOnLaunch:  apply the default profile automatically on every launch.
 // backupDir:      folder that receives a copy of every saved color profile.
-const DEFAULT_CONFIG = { startMinimized: false, applyOnLaunch: true, backupDir: null };
+// reapplyOnWake:  re-send the current profile after wake from sleep / unlock.
+// startupColor:   the color last stored in the keyboard's on-board memory
+//                 (display only — the keyboard can't be read back).
+const DEFAULT_CONFIG = {
+  startMinimized: false, applyOnLaunch: true, backupDir: null,
+  reapplyOnWake: true, startupColor: null,
+};
 let config = { ...DEFAULT_CONFIG };
 
 function configPath() {
@@ -147,6 +153,7 @@ function backupAllProfiles() {
 let currentScene = null; // { name: string|null, scene: object }
 function setCurrentScene(name, scene) {
   currentScene = { name: name || null, scene };
+  refreshMenus(); // the startup-color menu shows the profile's main color
 }
 
 // Wrap an engine call so a DEVICE_BUSY / error becomes a structured result the
@@ -325,6 +332,75 @@ function setTrayTitleFlash(text) {
   trayFlashTimer = setTimeout(() => tray && tray.setTitle(''), 2500);
 }
 
+function turnKeyboardOff() {
+  trayApply(() => {
+    const off = { background: '#000000', keys: {} };
+    const r = engine.applySpec(off);
+    setCurrentScene(null, off);
+    return { device: r.name };
+  }, 'Keyboard off');
+  if (mainWindow) mainWindow.webContents.send('scene-loaded', currentScene);
+}
+
+// The per-key frame only lives in the keyboard's volatile memory. Across sleep
+// (USB suspend) and especially behind a monitor/KVM hub, individual LEDs can
+// come back without their color, so re-send the current profile after wake and
+// unlock. Delayed because USB devices aren't always ready the instant the
+// event fires; retried a few times, silently (no dialogs on the lock screen).
+const REAPPLY_DELAYS_MS = [2000, 5000, 10000];
+let reapplyTimer = null;
+function onWakeOrUnlock() {
+  if (config.reapplyOnWake) scheduleReapply();
+}
+function scheduleReapply(attempt = 0) {
+  clearTimeout(reapplyTimer);
+  if (!currentScene || attempt >= REAPPLY_DELAYS_MS.length) return;
+  reapplyTimer = setTimeout(() => {
+    try {
+      engine.applySpec(currentScene.scene);
+    } catch (_) {
+      scheduleReapply(attempt + 1);
+    }
+  }, REAPPLY_DELAYS_MS[attempt]);
+}
+
+// Store a startup color in the keyboard's on-board memory, then restore the
+// current per-key profile so nothing visibly changes now.
+function storeStartupColor(color) {
+  trayApply(() => {
+    const r = engine.storeStartupColor(color, currentScene ? currentScene.scene : null);
+    config.startupColor = color;
+    saveConfig();
+    refreshMenus();
+    return { device: r.name };
+  }, 'Startup color stored');
+}
+
+const STARTUP_PRESETS = [
+  ['White', '#ffffff'], ['Red', '#ff0000'], ['Orange', '#ff7a00'],
+  ['Green', '#00ff33'], ['Blue', '#33ccff'], ['Purple', '#c060ff'],
+];
+
+function startupColorSubmenuTemplate() {
+  const main = currentScene ? engine.dominantColor(currentScene.scene) : null;
+  return [
+    {
+      label: main ? `Main Color of Current Profile (${main})` : 'Main Color of Current Profile',
+      enabled: !!main,
+      click: () => {
+        const c = currentScene && engine.dominantColor(currentScene.scene);
+        if (c) storeStartupColor(c);
+      },
+    },
+    { type: 'separator' },
+    ...STARTUP_PRESETS.map(([name, hex]) => ({ label: `${name} (${hex})`, click: () => storeStartupColor(hex) })),
+    { label: 'Off (dark until the app starts)', click: () => storeStartupColor('#000000') },
+    { type: 'separator' },
+    { label: config.startupColor ? `Stored: ${config.startupColor}` : 'Stored: not set by this app', enabled: false },
+    { label: 'Per-key colors can’t be stored on the keyboard', enabled: false },
+  ];
+}
+
 function loadDefaultProfile() {
   trayApply(() => {
     const full = scenePath('default');
@@ -381,6 +457,13 @@ function settingsSubmenuTemplate() {
       checked: config.applyOnLaunch,
       click: (item) => { config.applyOnLaunch = item.checked; saveConfig(); refreshMenus(); },
     },
+    {
+      label: 'Re-apply Profile After Wake / Unlock',
+      type: 'checkbox',
+      checked: config.reapplyOnWake,
+      click: (item) => { config.reapplyOnWake = item.checked; saveConfig(); refreshMenus(); },
+    },
+    { label: 'Startup Color (Stored on Keyboard)', submenu: startupColorSubmenuTemplate() },
     { type: 'separator' },
     { label: 'Choose Backup Folder…', click: () => chooseBackupFolder() },
     {
@@ -408,7 +491,7 @@ function buildTrayMenu() {
     { label: 'Show / Hide Window', click: () => (mainWindow && mainWindow.isVisible() ? mainWindow.hide() : showWindow()) },
     { type: 'separator' },
     { label: 'Apply Default Profile', click: () => loadDefaultProfile() },
-    { label: 'Turn Keyboard Off', click: () => trayApply(() => { const r = engine.applySpec({ background: '#000000', keys: {} }); return { device: r.name }; }, 'Keyboard off') },
+    { label: 'Turn Keyboard Off', click: () => turnKeyboardOff() },
     { type: 'separator' },
     { label: 'Settings', submenu: settingsSubmenuTemplate() },
     { type: 'separator' },
@@ -456,7 +539,7 @@ function buildAppMenu() {
       label: 'Keyboard',
       submenu: [
         { label: 'Apply Default Profile', click: () => loadDefaultProfile() },
-        { label: 'Turn Keyboard Off', click: () => trayApply(() => { const r = engine.applySpec({ background: '#000000', keys: {} }); return { device: r.name }; }, 'Keyboard off') },
+        { label: 'Turn Keyboard Off', click: () => turnKeyboardOff() },
       ],
     },
     {
@@ -504,15 +587,24 @@ if (!gotLock) {
     createTray();
 
     // Re-apply the default profile so the keyboard lights up without a click.
-    // Silent on failure (e.g. device busy at boot) — no dialogs at login.
+    // Silent on failure (e.g. device not ready yet at login) — no dialogs at
+    // login; retried in the background instead.
     if (config.applyOnLaunch) {
-      try {
-        const scene = JSON.parse(fs.readFileSync(scenePath('default'), 'utf8'));
-        engine.applySpec(scene);
+      let scene = null;
+      try { scene = JSON.parse(fs.readFileSync(scenePath('default'), 'utf8')); } catch (_) { /* no default */ }
+      if (scene) {
         setCurrentScene('default.json', scene);
-        setTrayTitleFlash('Default applied');
-      } catch (_) { /* device not ready / busy — user can apply from the tray */ }
+        try {
+          engine.applySpec(scene);
+          setTrayTitleFlash('Default applied');
+        } catch (_) {
+          scheduleReapply();
+        }
+      }
     }
+
+    powerMonitor.on('resume', onWakeOrUnlock);
+    powerMonitor.on('unlock-screen', onWakeOrUnlock);
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

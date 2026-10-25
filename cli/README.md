@@ -133,6 +133,9 @@ node src/ornata.js brightness 80
 # Everything off
 node src/ornata.js off
 
+# Store a power-on color in the keyboard's own memory, then re-apply a scene
+node src/ornata.js startup-color 0dbd00 scenes/default.json
+
 # Control a connected Razer mouse (Basilisk V3)
 node src/ornata.js mouse color 3a7afe      # static color
 node src/ornata.js mouse spectrum          # cycling spectrum
@@ -197,15 +200,15 @@ Straight after setup — and until you change it — the keyboard uses this prof
 
 | Keys | Colour |
 |------|--------|
-| Function row (F1–F12) | bright purple `#c060ff` |
-| Letters (A–Z) and the number row (1–0) | vivid green `#00ff33` |
-| Arrow keys | light blue `#33ccff` |
-| Number pad | red `#ff0000` |
-| Print Screen, Insert, Page Up & the rest of that cluster (Scroll Lock, Pause, Home, Delete, End, Page Down) | pink `#ff2e97` |
+| Main block: number row, letters, punctuation, Tab, Caps, Shift, Enter, Backspace, modifiers, Space | green `#0dbd00` |
+| Function row (F1–F12) | orange `#ff7a00` |
+| Esc, Print Screen, Scroll Lock, Pause and the Insert/Home/Page Up/Delete/End/Page Down cluster | purple `#a24bff` |
+| Arrow keys | blue `#3a7afe` |
+| Number pad and the M1/M2 keys | red `#ff0000` |
 
-Brightness is set to 100 %. Every other key (Esc, Tab, modifiers, Space, Enter…)
-stays off, so you have a clean canvas to build on. The profile lives in the
-keyboard's own memory, so it persists until you apply something else.
+Brightness is set to 100 % on a black background. The profile lives in the
+keyboard's volatile memory: it stays until you apply something else or the
+keyboard loses power (see [Notes & limitations](#notes--limitations)).
 
 Re-apply it any time with `node src/ornata.js default` (CLI) or **Load default
 profile** (GUI). Edit `scenes/default.json` to change what "default" means for
@@ -268,8 +271,20 @@ or load and edit it in the GUI. See [`scenes/`](scenes) and its
 - The custom frame is shown at the keyboard's current **brightness**. If the
   board looks dark, raise it with `ornata brightness 100` (or the `--bright`
   flag / a scene's `"brightness"` field / the GUI slider).
-- The frame lives in the keyboard until you change it, set another effect, or
-  power-cycle the board.
+- The frame lives in the keyboard's volatile memory until you change it, set
+  another effect, or power-cycle the board. Per-key colors **cannot** be stored
+  on the Ornata Chroma (the driver sends them without the "store" flag, and the
+  board has no on-board profile memory) — on Windows, Synapse simply re-sends
+  them at login and after sleep. What *can* be stored is a single color, which
+  the board shows at power-on before any software runs:
+
+  ```bash
+  node src/ornata.js startup-color 0dbd00 scenes/default.json
+  ```
+
+  stores green as the startup color, then re-applies the default profile so
+  the current lighting stays. This writes the keyboard's flash memory, so do it
+  once, not on every apply.
 
 ## Architecture
 

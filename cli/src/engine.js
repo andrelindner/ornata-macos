@@ -271,6 +271,43 @@ function applySpec(spec) {
   });
 }
 
+// The per-key custom frame is volatile (librazermacos sends it with NOSTORE),
+// so the Ornata forgets it on every power cycle. A single static color, on the
+// other hand, is written with VARSTORE into the keyboard's on-board memory and
+// is what the board shows at power-on — before any software runs. This stores
+// that startup color. If `restoreSpec` is given, that scene is re-sent right
+// afterwards so the visible per-key lighting doesn't change.
+// Writes flash memory: call it on an explicit user action, not on every apply.
+function storeStartupColor(color, restoreSpec) {
+  const rgb = parseColor(color);
+  const restore = restoreSpec ? buildFrame(restoreSpec).frame : null;
+  return withKeyboard((addon, kbd) => {
+    const id = kbd.internalDeviceId;
+    addon.kbdSetModeStatic(id, new Uint8Array(rgb));
+    if (restore) {
+      if (restoreSpec.brightness !== undefined) setBrightness(addon, id, restoreSpec.brightness);
+      applyFrame(addon, id, restore);
+    }
+    return { name: ORNATA_PIDS[kbd.productId] };
+  });
+}
+
+// The color covering the most lit cells of a scene (black cells ignored), as
+// "#rrggbb" — a sensible startup color for that scene. null if nothing is lit.
+function dominantColor(spec) {
+  const counts = new Map();
+  for (const row of buildFrame(spec).frame) {
+    for (const [r, g, b] of row) {
+      if (!r && !g && !b) continue;
+      const hex = '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+      counts.set(hex, (counts.get(hex) || 0) + 1);
+    }
+  }
+  let best = null;
+  for (const [hex, n] of counts) if (!best || n > best[1]) best = [hex, n];
+  return best ? best[0] : null;
+}
+
 module.exports = {
   ROWS, COLS, ORNATA_PIDS, MOUSE_PIDS, ADDON_PATH,
   DeviceBusyError,
@@ -278,5 +315,6 @@ module.exports = {
   parseColor, blankFrame, buildFrame, applyFrame,
   parseBrightness, setBrightness,
   withKeyboard, probe, applySpec,
+  storeStartupColor, dominantColor,
   findMouse, mouseName, withMouse, probeMouse, applyMouse,
 };
