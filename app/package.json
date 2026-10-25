@@ -1,7 +1,7 @@
 {
   "name": "ornata-macos-app",
   "productName": "Ornata Lighting",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Standalone macOS desktop app (Electron) for per-key RGB lighting of the Razer Ornata Chroma and a Razer Basilisk V3 mouse. Reuses the cli/ engine and native addon.",
   "author": "André Lindner",
   "license": "GPL-2.0-or-later",
