@@ -131,7 +131,7 @@ builds are published on the repository's GitHub Releases page.
 
 **Settings** is available in the menu-bar (tray) menu and in the app's menu bar
 (persisted in `~/Library/Application Support/Ornata Lighting/settings.json`; versions
-up to 1.2.1 were called *Razer Ornata Lighting* — their settings folder is moved
+up to 1.2.1 were called *Razer Ornata Lighting* — their settings are carried
 over automatically on first launch):
 
 - **Start at Login** — registers the app as a macOS login item.

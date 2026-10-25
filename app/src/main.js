@@ -42,16 +42,19 @@ if (!app.isPackaged) {
   app.setPath('userData', path.join(app.getPath('appData'), 'ornata-macos-app-dev'));
 }
 
-// Up to v1.2.1 the app was called "Razer Ornata Lighting". Move its settings
-// folder over once so settings and profiles survive the rename. Must run
-// before anything (e.g. the single-instance lock) creates the new folder.
-function migrateLegacyUserData() {
-  const legacy = path.join(app.getPath('appData'), 'Razer Ornata Lighting');
-  const current = app.getPath('userData');
-  if (!app.isPackaged || fs.existsSync(current) || !fs.existsSync(legacy)) return;
-  try { fs.renameSync(legacy, current); } catch (_) { /* start fresh instead */ }
+// Up to v1.2.1 the app was called "Razer Ornata Lighting". Carry its settings
+// over once. Only settings.json is ours in that folder (the rest is Chromium
+// cache), and Electron creates the new userData folder before this code runs,
+// so copy the file rather than moving the folder.
+function migrateLegacySettings() {
+  if (!app.isPackaged) return;
+  const legacy = path.join(app.getPath('appData'), 'Razer Ornata Lighting', 'settings.json');
+  if (fs.existsSync(configPath()) || !fs.existsSync(legacy)) return;
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    fs.copyFileSync(legacy, configPath());
+  } catch (_) { /* start with defaults instead */ }
 }
-migrateLegacyUserData();
 
 const engine = require(cliPath('src', 'engine.js'));
 const { layoutPayload } = require(cliPath('src', 'layout.js'));
@@ -549,6 +552,7 @@ if (!gotLock) {
   app.on('second-instance', () => showWindow());
 
   app.whenReady().then(() => {
+    migrateLegacySettings();
     loadConfig();
     try { ensureProfilesDir(); } catch (_) { /* falls back to the bundled scenes */ }
     // In dev the bundle icon isn't applied, so set the dock icon from assets.
