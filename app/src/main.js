@@ -42,6 +42,13 @@ function scenesDir() {
   return path.join(__dirname, '..', '..', 'cli', 'scenes');
 }
 
+// A dev run gets its own name and settings folder so it can't be mistaken for
+// the installed app (login items, single-instance lock, settings.json).
+if (!app.isPackaged) {
+  app.setName('Razer Ornata Lighting Dev');
+  app.setPath('userData', path.join(app.getPath('appData'), 'razer-ornata-macos-app-dev'));
+}
+
 const engine = require(enginePath());
 const { KEYS, GROUPS, ALIASES } = require(layoutModulePath());
 
@@ -434,11 +441,15 @@ async function chooseBackupFolder() {
 // Shared Settings submenu — used by both the tray menu and the application
 // menu bar, so the settings are reachable from either place.
 function settingsSubmenuTemplate() {
-  const login = app.getLoginItemSettings();
+  // Never touch login items from a dev run: macOS matches the login item by app
+  // name, and even querying it re-pointed the installed app's entry at the
+  // bare node_modules Electron.app, which then opened its default window at boot.
+  const login = app.isPackaged ? app.getLoginItemSettings() : { openAtLogin: false };
   return [
     {
-      label: 'Start at Login',
+      label: app.isPackaged ? 'Start at Login' : 'Start at Login (installed app only)',
       type: 'checkbox',
+      enabled: app.isPackaged,
       checked: login.openAtLogin,
       click: (item) => {
         app.setLoginItemSettings({ openAtLogin: item.checked, openAsHidden: true });
