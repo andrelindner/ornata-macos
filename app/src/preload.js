@@ -18,6 +18,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('ornata', {
   // { name, version } of the app
   appInfo: () => ipcRenderer.invoke('appInfo'),
+  // The height the window content needs, so the window opens without a scrollbar.
+  reportContentHeight: (height) => ipcRenderer.send('content-height', height),
 
   // Layout + status
   layout: () => ipcRenderer.invoke('layout'),

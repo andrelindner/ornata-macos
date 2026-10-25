@@ -18,7 +18,7 @@
 // only over IPC (see preload.js).
 
 const {
-  app, BrowserWindow, Tray, Menu, ipcMain, dialog, nativeImage, nativeTheme, shell, powerMonitor,
+  app, BrowserWindow, Tray, Menu, ipcMain, dialog, nativeImage, nativeTheme, shell, powerMonitor, screen,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -456,10 +456,26 @@ const TRAY_ICON_22_B64 =
 const TRAY_ICON_44_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAABGUlEQVR4nO2WXUrFMBCFv7RFF+XdgAvQFx90YYoLuI+CT+7L39tcCgmkIZl7EVNaOR8MhckZmElIc0CIGY46vbHugcPC+l8PUtK01ptJFybcAXfAZaKb8p/AC/Ca5VvpPQbTMU1chSPxRtwkA7bU91bDQ/g+hqJ34DuLD2AE3pK6p4b6vtRgaad9WM81LolI11DvyQprnHMxltSfbHiVdGyMoZIfQ/wUji7mxoX0zhog3sjrE7+cKe6Tupb6/tyH4xZ4AC6yG/sF7IHn5DaPDfXe2mFrkFU8zR0bw1Vy8hLIS8yRlyggL7FKhkpeXgJ5iTnyEn+FvATyEshLROQl/kXDQyUvL4G8xEa8hDMK4lH4Ss1hYb0QFDgCdgmStZz5074AAAAASUVORK5CYII=';
 
+// The window opens at the height its content needs (no scrollbar), as far as
+// the screen allows. The renderer reports that height once it has built the
+// keyboard; until then the window stays hidden, so it doesn't visibly jump.
+const WINDOW_WIDTH = 1180;
+const SHOW_FALLBACK_MS = 2000;
+
+function fitWindowToContent(contentHeight) {
+  if (!mainWindow) return;
+  const area = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+  const frame = mainWindow.getSize()[1] - mainWindow.getContentSize()[1];
+  const height = Math.min(Math.ceil(contentHeight), area.height - frame);
+  mainWindow.setContentSize(Math.min(WINDOW_WIDTH, area.width), Math.max(height, 560));
+  mainWindow.center();
+}
+
 function createWindow(startHidden) {
   mainWindow = new BrowserWindow({
-    width: 1180,
+    width: WINDOW_WIDTH,
     height: 900,
+    useContentSize: true,
     minWidth: 760,
     minHeight: 560,
     title: app.name,
@@ -474,7 +490,17 @@ function createWindow(startHidden) {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  if (!startHidden) mainWindow.once('ready-to-show', () => mainWindow.show());
+
+  let fitted = false;
+  const reveal = () => { if (!startHidden && mainWindow && !mainWindow.isVisible()) mainWindow.show(); };
+  mainWindow.webContents.ipc.on('content-height', (_e, height) => {
+    if (fitted || !Number.isFinite(height)) return;
+    fitted = true;
+    fitWindowToContent(height);
+    reveal();
+  });
+  // Show anyway if the renderer never reports (e.g. it failed to start).
+  mainWindow.once('ready-to-show', () => setTimeout(reveal, SHOW_FALLBACK_MS));
 
   // Open external links in the default browser, not inside the app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

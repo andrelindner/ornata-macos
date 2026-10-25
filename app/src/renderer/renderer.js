@@ -275,6 +275,9 @@ async function init() {
   $("#version").textContent = `v${info.version}`;
   document.title = `${info.name} ${info.version}`;
 
+  // The keyboard tab is the tallest view; the window opens at its height.
+  api.reportContentHeight(document.documentElement.scrollHeight);
+
   // Show the profile that is currently on the keyboard (applied at launch or
   // from the tray) instead of starting from an empty board.
   const cur = await api.currentScene();
