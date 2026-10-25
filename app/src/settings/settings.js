@@ -139,12 +139,13 @@ function render(next) {
 // --- restore sheet ----------------------------------------------------------
 let preview = null;
 
-function openRestoreSheet(p) {
+function openRestoreSheet(p, dir) {
   preview = p;
   const meta = $("#restoreMeta");
   meta.replaceChildren();
   const row = (label, value) => meta.append(el("div", { className: "item" },
     el("span", { className: "label", textContent: label }), el("span", { className: "value", textContent: value })));
+  row("Folder", prettyPath(dir));
   if (p.createdAt) row("Created", formatDate(p.createdAt));
   if (p.createdOnHost) row("On Mac", p.createdOnHost);
   if (p.appVersion) row("App version", p.appVersion);
@@ -249,7 +250,7 @@ function wire() {
     const r = await api.chooseRestore();
     if (r.canceled) return;
     if (!r.ok) { showStatus(false, r.error); return; }
-    openRestoreSheet(r.preview);
+    openRestoreSheet(r.preview, r.dir);
   };
   $("#restoreOverwrite").onchange = renderRestoreProfiles;
   $("#restoreCancel").onclick = closeRestoreSheet;

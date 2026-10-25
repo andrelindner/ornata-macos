@@ -362,7 +362,7 @@ function registerSettingsIpc() {
       defaultPath: config.backupDir || app.getPath('documents'),
       properties: ['openDirectory', 'createDirectory'],
     });
-    if (!res.canceled && res.filePaths.length) setBackupDir(res.filePaths[0]);
+    if (!res.canceled && res.filePaths.length) setBackupDir(backupStore.backupRoot(res.filePaths[0]));
     return settingsState();
   });
 
@@ -403,8 +403,9 @@ function registerSettingsIpc() {
     });
     if (res.canceled || !res.filePaths.length) return { ok: false, canceled: true };
     try {
-      const preview = backupStore.inspect(res.filePaths[0], profilesDir());
-      restoreDir = res.filePaths[0];
+      const dir = backupStore.backupRoot(res.filePaths[0]);
+      const preview = backupStore.inspect(dir, profilesDir());
+      restoreDir = dir;
       return { ok: true, dir: restoreDir, preview };
     } catch (e) {
       return { ok: false, error: e.message };

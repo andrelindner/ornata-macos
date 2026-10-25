@@ -67,6 +67,17 @@ function readManifest(dir) {
   };
 }
 
+// The backup folder for a folder the user picked: when that is the profiles/
+// or deleted/ subfolder of a backup, the backup itself is its parent.
+function backupRoot(dir) {
+  const parent = path.dirname(dir);
+  const sub = path.basename(dir);
+  if ((sub === 'profiles' || sub === 'deleted')
+      && !fs.existsSync(path.join(dir, MANIFEST))
+      && fs.existsSync(path.join(parent, MANIFEST))) return parent;
+  return dir;
+}
+
 // Write via a temp file + rename, so an interrupted backup never leaves a
 // half-written manifest behind.
 function writeJsonAtomic(file, data) {
@@ -242,4 +253,4 @@ function restore(dir, { profilesDir, overwrite = false, restoreSettings = false,
   return result;
 }
 
-module.exports = { BackupError, MANIFEST, backup, inspect, restore };
+module.exports = { BackupError, MANIFEST, backup, backupRoot, inspect, restore };

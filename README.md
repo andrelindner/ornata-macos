@@ -148,6 +148,8 @@ Settings → **Backup** works like a folder backup in other macOS apps:
   when and on which Mac it was made, the profiles (new, kept, or replaced), the
   profiles in the grace period, and whether the settings come along. Existing
   profiles are only replaced if you switch on **Overwrite existing profiles**.
+  Picking the `profiles` or `deleted` subfolder of a backup by mistake opens the
+  backup itself.
 
 The backup is made of plain files, not an archive, so you can get at a profile
 without the app:
