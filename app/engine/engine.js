@@ -20,7 +20,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { ROWS, COLS, expand } = require('./layout');
+const { ROWS, COLS, FILL_BETWEEN, expand } = require('./layout');
 
 const ADDON_PATH = path.join(__dirname, '..', 'addon.node');
 
@@ -202,10 +202,17 @@ function buildFrame(spec) {
   const bg = parseColor((spec && spec.background) || '#000000');
   const frame = blankFrame(bg);
   const extraGroups = (spec && spec.groups) || {};
+  const painted = new Map(); // "r,c" -> rgb
   let litCells = 0;
   for (const [key, color] of Object.entries((spec && spec.keys) || {})) {
     const rgb = parseColor(color);
-    for (const [r, c] of expand(key, extraGroups)) { frame[r][c] = rgb; litCells++; }
+    for (const [r, c] of expand(key, extraGroups)) { frame[r][c] = rgb; painted.set(`${r},${c}`, rgb); litCells++; }
+  }
+  // Older profiles light the newer keys like their neighbors (see layout.js).
+  for (const [key, sides] of Object.entries(FILL_BETWEEN)) {
+    const [r, c] = expand(key)[0];
+    const [a, b] = sides.map((side) => painted.get(expand(side)[0].join(',')));
+    if (!painted.has(`${r},${c}`) && a && b && a.join() === b.join()) { frame[r][c] = a; litCells++; }
   }
   return { frame, litCells };
 }

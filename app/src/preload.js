@@ -30,8 +30,8 @@ contextBridge.exposeInMainWorld('ornata', {
   // used to restore the editor state when the window opens.
   currentScene: () => ipcRenderer.invoke('currentScene'),
 
-  // Keyboard
-  applyKeyboard: (spec) => ipcRenderer.invoke('applyKeyboard', spec),
+  // Keyboard. name: the profile shown in the editor, if any.
+  applyKeyboard: (spec, name) => ipcRenderer.invoke('applyKeyboard', spec, name),
   keyboardOff: () => ipcRenderer.invoke('keyboardOff'),
 
   // Mouse: { mode:'static'|'spectrum'|'wave'|'off', color?, direction?, brightness?, dpi? }
@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld('ornata', {
   onSceneLoaded: (cb) => ipcRenderer.on('scene-loaded', (_e, cur) => cb(cur)),
   // The profiles folder changed outside the editor (restore from a backup).
   onProfilesChanged: (cb) => ipcRenderer.on('profiles-changed', () => cb()),
+  // Another keyboard layout was picked in the settings.
+  onLayoutChanged: (cb) => ipcRenderer.on('layout-changed', () => cb()),
+
+  // A native menu at the mouse: [{ id, label, enabled } | { type: 'separator' }]
+  // -> the chosen id, or null.
+  popupMenu: (items) => ipcRenderer.invoke('popupMenu', items),
 
   // Settings window. Every call that changes something resolves to the new
   // settings state (or { ok, message|error, state }).

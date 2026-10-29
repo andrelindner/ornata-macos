@@ -56,7 +56,7 @@ function migrateLegacySettings() {
 }
 
 const engine = require(corePath('engine', 'engine.js'));
-const { layoutPayload } = require(corePath('engine', 'layout.js'));
+const { layoutPayload, layoutChoices } = require(corePath('engine', 'layout.js'));
 const scenes = require(corePath('engine', 'scenes.js'));
 const backupStore = require(corePath('engine', 'backup.js'));
 
@@ -101,9 +101,12 @@ function readDefaultProfile() {
 // backupRetentionDays: how long profiles deleted locally stay in the backup
 //                      (0 = forever).
 // lastBackupAt:        ISO time of the last successful backup.
+// keyboardLayout:      'de' or 'us' for the visual keyboard (engine/layout.js);
+//                      null follows the system language.
 const DEFAULT_CONFIG = {
   startMinimized: false, applyOnLaunch: true, reapplyOnWake: true, startupColor: null,
   backupDir: null, autoBackup: true, backupRetentionDays: 30, lastBackupAt: null,
+  keyboardLayout: null,
 };
 let config = { ...DEFAULT_CONFIG };
 
@@ -111,8 +114,12 @@ let config = { ...DEFAULT_CONFIG };
 // startupColor and lastBackupAt have their own actions.
 const EDITABLE = {
   startMinimized: 'boolean', applyOnLaunch: 'boolean', reapplyOnWake: 'boolean',
-  autoBackup: 'boolean', backupRetentionDays: 'number',
+  autoBackup: 'boolean', backupRetentionDays: 'number', keyboardLayout: 'string',
 };
+function validSetting(key, value) {
+  if (!EDITABLE[key] || typeof value !== EDITABLE[key]) return false;
+  return key !== 'keyboardLayout' || layoutChoices().some((l) => l.id === value);
+}
 // Settings a backup carries. The backup folder is machine-specific, and the
 // startup color describes the keyboard's memory rather than a preference.
 const BACKED_UP = Object.keys(EDITABLE);
@@ -130,6 +137,14 @@ function saveConfig() {
     fs.mkdirSync(app.getPath('userData'), { recursive: true });
     fs.writeFileSync(configPath(), JSON.stringify(config, null, 2) + '\n', 'utf8');
   } catch (_) { /* non-fatal */ }
+}
+
+// German QWERTZ when macOS prefers German, US otherwise — until a layout is
+// picked in the settings.
+function keyboardLayoutId() {
+  if (config.keyboardLayout) return config.keyboardLayout;
+  const lang = (app.getPreferredSystemLanguages()[0] || app.getLocale() || '').toLowerCase();
+  return lang.startsWith('de') ? 'de' : 'us';
 }
 
 function pick(obj, keys) {
@@ -217,11 +232,14 @@ function guard(fn) {
 // --- IPC --------------------------------------------------------------------
 function registerIpc() {
   ipcMain.handle('appInfo', () => ({ name: app.name, version: app.getVersion() }));
-  ipcMain.handle('layout', () => layoutPayload());
+  ipcMain.handle('layout', () => layoutPayload(keyboardLayoutId()));
   ipcMain.handle('status', () => engine.probe());
   ipcMain.handle('mouseStatus', () => engine.probeMouse());
 
-  ipcMain.handle('applyKeyboard', (_e, spec) => guard(() => applyScene(null, spec || {})));
+  // name: the profile the editor shows, so the UI can mark it as the one on
+  // the keyboard.
+  ipcMain.handle('applyKeyboard', (_e, spec, name) =>
+    guard(() => applyScene(typeof name === 'string' ? path.basename(name) : null, spec || {})));
   ipcMain.handle('keyboardOff', () => guard(() => applyScene(null, offScene())));
 
   // The scene currently on the keyboard — the UI restores it when it opens.
@@ -332,6 +350,18 @@ function registerIpc() {
   });
 
   ipcMain.handle('openSettings', (_e, tab) => showSettings(tab));
+
+  // A native menu at the mouse: items are { id, label, enabled } or
+  // { type: 'separator' }. Resolves to the chosen id, or null when dismissed.
+  ipcMain.handle('popupMenu', (e, items) => new Promise((resolve) => {
+    const menu = Menu.buildFromTemplate((Array.isArray(items) ? items : []).map((it) => (
+      it.type === 'separator'
+        ? { type: 'separator' }
+        : { label: String(it.label), enabled: it.enabled !== false, click: () => resolve(it.id) })));
+    // The menu closes before the click handler runs; give the click a moment.
+    menu.popup({ window: BrowserWindow.fromWebContents(e.sender), callback: () => setTimeout(() => resolve(null), 100) });
+  }));
+
   registerSettingsIpc();
 }
 
@@ -345,6 +375,7 @@ function settingsState() {
     config: { ...config },
     loginItem: loginItemState(),
     profilesDir: profilesDir(),
+    keyboard: { layout: keyboardLayoutId(), layouts: layoutChoices() },
     backup: {
       dir,
       reachable: !!dir && fs.existsSync(dir),
@@ -371,10 +402,11 @@ function registerSettingsIpc() {
   ipcMain.handle('settings:get', () => settingsState());
 
   ipcMain.handle('settings:set', (_e, key, value) => {
-    if (!EDITABLE[key] || typeof value !== EDITABLE[key]) return settingsState();
+    if (!validSetting(key, value)) return settingsState();
     config[key] = value;
     saveConfig();
     scheduleAutoBackup();
+    if (key === 'keyboardLayout') notifyLayoutChanged();
     return settingsState();
   });
 
@@ -468,9 +500,10 @@ function registerSettingsIpc() {
       });
       if (r.settings) {
         for (const [k, v] of Object.entries(pick(r.settings, BACKED_UP))) {
-          if (typeof v === EDITABLE[k]) config[k] = v;
+          if (validSetting(k, v)) config[k] = v;
         }
         saveConfig();
+        notifyLayoutChanged();
       }
       restoreDir = null;
       if (mainWindow) mainWindow.webContents.send('profiles-changed');
@@ -480,6 +513,11 @@ function registerSettingsIpc() {
       return { ok: false, error: e.message, state: settingsState() };
     }
   });
+}
+
+// The main window redraws its keyboard for the chosen layout.
+function notifyLayoutChanged() {
+  if (mainWindow) mainWindow.webContents.send('layout-changed');
 }
 
 function setBackupDir(dir) {
@@ -504,7 +542,7 @@ const TRAY_ICON_44_B64 =
 // The window opens at the height its content needs (no scrollbar), as far as
 // the screen allows. The renderer reports that height once it has built the
 // keyboard; until then the window stays hidden, so it doesn't visibly jump.
-const WINDOW_WIDTH = 1180;
+const WINDOW_WIDTH = 1260;
 const SHOW_FALLBACK_MS = 2000;
 
 function fitWindowToContent(contentHeight) {
@@ -521,7 +559,7 @@ function createWindow(startHidden) {
     width: WINDOW_WIDTH,
     height: 900,
     useContentSize: true,
-    minWidth: 760,
+    minWidth: 920, // the keyboard fits at its smallest scale (see fitBoard)
     minHeight: 560,
     title: app.name,
     backgroundColor: '#16171c',

@@ -22,19 +22,31 @@ can paint any key any color.
 
 ## What it can do
 
-- **Visual keyboard** laid out from the real hardware matrix, with every key
-  labeled.
+- **Main window with a sidebar**: the connected devices (the keyboard, and the
+  mouse while one is found) and your profiles, each with its main colors.
+  - Click a profile to open it; right-click it for **Open**, **Apply to
+    Keyboard** and **Delete…**.
+  - The toolbar shows the open profile and whether it is on the keyboard or has
+    unsaved changes.
+- **Visual keyboard** with the real key sizes (wide Space, tall numpad + and
+  Enter, wide numpad 0) in the **German (QWERTZ, ISO)** or **English US
+  (QWERTY, ANSI)** layout. The layout follows the macOS language; change it in
+  Settings → General → Keyboard.
   - Click a key to paint it; click and drag to paint many.
   - Right-click or Shift-click a key to clear it back to the background.
   - The board is a live preview.
 - **Color picker** with hex field and swatches, plus one-click **group**
   painting: WASD, ARROWS, LETTERS, FKEYS, NUMROW, NUMPAD, MODIFIERS, NAV, ALL.
 - A **background** color and a **brightness** slider (0–100).
-- Buttons: **Apply to keyboard**, **Turn off**, **Load default profile**, **Reset**.
+- Buttons: **Apply to keyboard**, **Save**, **Turn off**, **Reset**. The **⋯**
+  menu holds **Apply Default Profile**, **Open .json…**, **Save to File…**,
+  **Delete…** and **Show Profiles Folder**.
 - **Profiles**
-  - Save the current colors, background and brightness as a named profile, or
-    anywhere through a native **Save** dialog.
-  - Load a saved profile, or any local `.json` through a native **Open** dialog.
+  - Save the current colors, background and brightness as a new profile with
+    the **+** in the sidebar, overwrite the open profile with **Save**, or save
+    anywhere through **Save to File…**.
+  - Open a saved profile from the sidebar, or any local `.json` through
+    **Open .json…**.
   - **Delete…** a saved profile after a confirmation. The file goes to the
     Trash; if a backup folder is set, the app backs up right away and the
     backup keeps the profile with its deletion date for the grace period, so
@@ -43,15 +55,18 @@ can paint any key any color.
   - Profiles live in `~/Library/Application Support/Ornata Lighting/profiles/`,
     outside the app bundle, so updates keep them.
   - On first launch the folder is filled with the bundled scenes.
-- **Mouse tab** for the Basilisk V3: static **Color**, **Spectrum**, **Wave**,
-  **Off**, **Brightness** (0–100) and **DPI** with presets. The tab only shows
-  up while a supported mouse is connected; the app checks again when the window
-  gets focus and every 15 seconds.
-- **Settings window** (⌘, or the gear in the window) with the tabs *General*,
+  - Profiles saved before 1.5 don't mention the Menu key and the ISO keys `#`
+    and `<`. Such a key takes the color of the keys on both sides when those
+    match, so a profile that colors the whole board stays fully lit.
+- **Mouse view** for the Basilisk V3: static **Color**, **Spectrum**, **Wave**,
+  **Off**, **Brightness** (0–100) and **DPI** with presets. The mouse only shows
+  up in the sidebar while a supported mouse is connected; the app checks again
+  when the window gets focus and every 15 seconds.
+- **Settings window** (⌘, or **Settings** in the sidebar) with the tabs *General*,
   *Backup* and *iCloud*, see [Settings](#settings).
 - **Backup and restore** of profiles and settings to any folder, including a
   network share or iCloud Drive, see [Backup](#backup).
-- The **version** is shown in the window header, the menu-bar menu, the About
+- The **version** is shown in the sidebar, the menu-bar menu, the About
   panel and the settings window.
 - **Menu-bar (tray) icon** with these items:
   - the app name and version
@@ -96,8 +111,8 @@ can paint any key any color.
 
 ## Settings
 
-Open **Settings…** from the menu-bar (tray) menu, the app menu (⌘,) or the gear
-in the window header. The app saves them in
+Open **Settings…** from the menu-bar (tray) menu, the app menu (⌘,) or
+**Settings** at the bottom of the sidebar. The app saves them in
 `~/Library/Application Support/Ornata Lighting/settings.json`.
 
 **General**
@@ -108,6 +123,9 @@ in the window header. The app saves them in
 - **Open window at launch**. Off: the app starts in the menu bar only, with no
   window and no Dock icon. Combine it with *Start at login* so your lighting is
   active right after boot.
+- **Layout** of the keyboard in the main window: *German (QWERTZ, ISO)* or
+  *English US (QWERTY, ANSI)*, with their key caps and key sizes. Until you pick
+  one, it follows the macOS language. The lighting works the same with either.
 - **Apply default profile at launch** (on by default) re-applies the `default`
   profile on every launch. The keyboard forgets its per-key colors when it loses
   power. If the keyboard isn't ready yet at login, the app retries in the
@@ -265,11 +283,11 @@ After `npm run dist`, the `postdist` script removes the build byproducts, so
 app/
   src/main.js          main process: IPC, tray, menus, settings, profiles, backup
   src/preload.js       window.ornata.* bridge (contextIsolation on, no Node in the UI)
-  src/renderer/        the main window: keyboard tab, mouse tab, profiles
+  src/renderer/        the main window: sidebar (devices, profiles), keyboard and mouse view
   src/settings/        the settings window: General, Backup, iCloud
   src/smoke.js         headless device check
   engine/engine.js     device I/O through addon.node (plain Node, no Electron)
-  engine/layout.js     key -> [row, col] map, groups, aliases, labels
+  engine/layout.js     key -> [row, col] map, groups, aliases, key caps and sizes per layout
   engine/scenes.js     reading, listing and writing scene/profile files
   engine/backup.js     backup to a folder, inspect and restore (plain Node)
   scenes/              bundled scenes (default profile + examples)
@@ -291,7 +309,8 @@ kbdSetModeCustom(id)                         display the custom frame
 
 The row payload is `ROW_ID, START_COL, STOP_COL, N×RGB`, which is the OpenRazer
 `matrix_custom_frame` protocol. The key-to-coordinate table in `engine/layout.js`
-is taken from razer-macos's own ripple mapping, so it matches the hardware.
+started from razer-macos's own ripple mapping and was checked key by key on a
+German Ornata Chroma, including Fn, Menu and the ISO keys `#` and `<`.
 
 ### App icon
 

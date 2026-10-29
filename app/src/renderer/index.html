@@ -12,66 +12,105 @@
 <title>Ornata Lighting</title>
 <style>
   :root {
-    --bg: #16171c; --panel: #1e2027; --panel2: #262933; --line: #33363f;
+    --bg: #16171c; --side: #1a1b21; --panel: #1e2027; --panel2: #262933; --line: #33363f;
     --text: #e7e9ee; --muted: #9aa0ad; --accent: #44d07b; --accent2: #3a7afe;
     --danger: #e5484d; --radius: 10px;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
+    margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
     font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  header {
-    padding: 14px 20px; border-bottom: 1px solid var(--line);
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    background: var(--panel);
-  }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header h1 .ver { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
-  header .sub { color: var(--muted); font-size: 12px; }
-  .tabs { display: flex; gap: 4px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; margin-left: 12px; }
-  .tabs button { border: 0; background: transparent; color: var(--muted); padding: 6px 16px; border-radius: 7px; font-weight: 500; }
-  .tabs button:hover { color: var(--text); }
-  .tabs button.active { background: var(--panel2); color: var(--text); box-shadow: 0 1px 2px #0006; }
-  .tabs button[hidden] { display: none; }
-  .tab-panel[hidden] { display: none; }
-  #status {
-    margin-left: auto; display: flex; align-items: center; gap: 8px;
-    font-size: 12.5px; padding: 6px 12px; border-radius: 999px;
-    background: var(--panel2); border: 1px solid var(--line); cursor: pointer;
-  }
-  #status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
-  #status.ok .dot { background: var(--accent); }
-  #status.busy .dot, #status.err .dot { background: var(--danger); }
-  .icon-btn { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border-radius: 999px; color: var(--muted); }
-  .icon-btn:hover { color: var(--text); }
-  .dpi-presets { display: flex; gap: 6px; flex-wrap: wrap; }
-  .dpi-presets button { padding: 6px 10px; font-size: 12px; }
-  main { padding: 20px; max-width: 1180px; margin: 0 auto; }
+  [hidden] { display: none !important; }
+  .app { display: flex; height: 100vh; }
 
-  .board-wrap { overflow-x: auto; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  /* --- sidebar: devices, profiles, settings --- */
+  .side {
+    width: 224px; flex: none; display: flex; flex-direction: column; gap: 2px;
+    padding: 10px 10px 12px; background: var(--side); border-right: 1px solid var(--line); overflow-y: auto;
+  }
+  .side-label {
+    display: flex; align-items: center; justify-content: space-between; min-height: 30px;
+    padding: 10px 8px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .item {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px;
+    border: 0; border-radius: 7px; background: transparent; color: var(--text);
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .item:hover { background: #22242b; border-color: transparent; }
+  .item[aria-current="true"] { background: var(--panel2); }
+  .item > svg { flex: none; color: var(--muted); }
+  .item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item-sub { font-size: 12px; color: var(--muted); line-height: 1.3; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
+  .dot.ok { background: var(--accent); }
+  .dot.err { background: var(--danger); }
+  .dots { display: flex; gap: 3px; flex: none; }
+  .dots i { display: block; width: 8px; height: 8px; border-radius: 2px; box-shadow: inset 0 0 0 1px #ffffff26; }
+  .badge {
+    margin-left: auto; flex: none; padding: 0 7px; border: 1px solid var(--accent); border-radius: 999px;
+    font-size: 11px; line-height: 17px; color: var(--accent); white-space: nowrap;
+  }
+  .new-profile { padding: 4px 4px 2px; }
+  .new-profile input { width: 100%; }
+  .side-foot {
+    margin-top: auto; display: flex; align-items: center; justify-content: space-between;
+    padding-top: 8px; border-top: 1px solid var(--line);
+  }
+  .side-foot .item { width: auto; }
+  .ver { padding-right: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* --- content --- */
+  .content { flex: 1; min-width: 0; overflow: auto; padding: 18px 20px 20px; }
+  .panel { display: flex; flex-direction: column; gap: 14px; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .toolbar h1 { margin: 0; font-size: 20px; font-weight: 650; overflow-wrap: anywhere; }
+  .toolbar .sub { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .toolbar .sub::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .toolbar .sub.live::before { background: var(--accent); }
+  .actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+  .board-wrap { overflow-x: auto; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
   .board {
-    display: grid; grid-template-columns: repeat(22, 40px);
-    grid-auto-rows: 40px; gap: 5px; min-width: max-content; margin: 0 auto;
-    background: #0c0d11; padding: 14px; border-radius: 8px;
+    --u: 42px; --gap: 4px; --pad: 14px;
+    position: relative; margin: 0 auto; background: #0c0d11; border-radius: 8px;
+    width: calc(var(--bw) * var(--u) - var(--gap) + 2 * var(--pad));
+    height: calc(var(--bh) * var(--u) - var(--gap) + 2 * var(--pad));
   }
   .key {
-    border-radius: 6px; border: 1px solid #00000055;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 9.5px; line-height: 1.05; text-align: center; cursor: pointer;
-    user-select: none; overflow: hidden; padding: 1px;
-    box-shadow: inset 0 0 0 1px #ffffff10; transition: transform .05s;
-    color: #000;
+    --c: #000000;
+    position: absolute;
+    left: calc(var(--pad) + var(--x) * var(--u)); top: calc(var(--pad) + var(--y) * var(--u));
+    width: calc(var(--w) * var(--u) - var(--gap)); height: calc(var(--h) * var(--u) - var(--gap));
+    border-radius: 6px; background: var(--c); color: #000;
+    box-shadow: 0 0 10px color-mix(in srgb, var(--c) 35%, transparent), inset 0 0 0 1px #ffffff14;
+    display: flex; align-items: center; justify-content: center; padding: 1px;
+    font-size: calc(var(--u) * .23); font-weight: 600; line-height: 1.05; text-align: center;
+    cursor: pointer; user-select: none; overflow: hidden;
   }
-  .key:hover { outline: 2px solid var(--accent2); outline-offset: 1px; }
+  .key.sym { font-size: calc(var(--u) * .36); font-weight: 500; }
+  .key:hover { outline: 2px solid var(--accent2); outline-offset: 1px; z-index: 1; }
+  /* The ISO Enter: full width in the upper row, a quarter unit narrower below. */
+  .key.iso-enter {
+    clip-path: polygon(0 0, 100% 0, 100% 100%, calc(var(--u) * .25) 100%,
+      calc(var(--u) * .25) calc(var(--u) - var(--gap)), 0 calc(var(--u) - var(--gap)));
+  }
+  .key.iso-enter:hover { box-shadow: inset 0 0 0 2px var(--accent2); }
   .key .name { pointer-events: none; word-break: break-word; }
 
-  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; }
-  @media (max-width: 820px) { .controls { grid-template-columns: 1fr; } }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
-  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
-  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-  .row:last-child { margin-bottom: 0; }
+  .hint { margin: -4px 0 0; color: var(--muted); font-size: 12px; }
+  .cards { display: flex; flex-wrap: wrap; gap: 14px; }
+  .card {
+    flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 12px;
+    padding: 14px 16px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .card h2 { margin: 0; font-size: 13px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .row > label:first-child { width: 78px; }
   label { font-size: 13px; color: var(--muted); }
   input[type=color] { width: 46px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; cursor: pointer; }
   input[type=text], select {
@@ -79,18 +118,28 @@
     border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit;
   }
   input[type=text].hex { width: 96px; font-variant-numeric: tabular-nums; text-transform: lowercase; }
-  input[type=range] { flex: 1; min-width: 140px; accent-color: var(--accent); }
+  input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
   .swatches { display: flex; gap: 6px; flex-wrap: wrap; }
-  .swatch { width: 22px; height: 22px; border-radius: 5px; cursor: pointer; border: 1px solid #ffffff22; }
+  .swatch { width: 22px; height: 22px; padding: 0; border-radius: 5px; cursor: pointer; border: 1px solid #ffffff22; }
+  .swatch:hover { border-color: #ffffff88; }
   button {
     background: var(--panel2); color: var(--text); border: 1px solid var(--line);
-    border-radius: 8px; padding: 8px 13px; font-size: 13px; cursor: pointer; font-family: inherit;
+    border-radius: 8px; padding: 7px 13px; font-size: 13px; cursor: pointer; font-family: inherit;
   }
   button:hover { border-color: var(--accent2); }
   button.primary { background: var(--accent); color: #05230f; border-color: var(--accent); font-weight: 600; }
-  button.danger { background: transparent; border-color: var(--danger); color: #ff8f92; }
-  .group-btns { display: flex; gap: 6px; flex-wrap: wrap; }
-  .group-btns button { padding: 6px 10px; font-size: 12px; }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center; padding: 0;
+    width: 32px; height: 32px; border-color: transparent; background: transparent; color: var(--muted);
+  }
+  .icon-btn:hover { color: var(--text); background: var(--panel2); border-color: transparent; }
+  .icon-btn.small { width: 24px; height: 24px; border-radius: 6px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chips button { padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .03em; }
+  .chips button:hover { border-color: var(--accent); }
+  .dpi-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .dpi-presets button { padding: 6px 10px; font-size: 12px; }
+  .note { margin: 0; color: var(--muted); font-size: 12px; }
   #toast {
     position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
     background: var(--panel2); border: 1px solid var(--line); color: var(--text);
@@ -99,137 +148,146 @@
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #toast.err { border-color: var(--danger); }
-  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>Ornata Lighting<span class="ver" id="version"></span></h1>
-    <div class="sub">RGB lighting for the Razer Ornata Chroma and Basilisk V3</div>
-  </div>
-  <nav class="tabs" role="tablist">
-    <button type="button" role="tab" id="tabKeyboard" data-tab="keyboard" class="active" aria-selected="true">Keyboard</button>
-    <button type="button" role="tab" id="tabMouse" data-tab="mouse" aria-selected="false" hidden>Mouse</button>
+<div class="app">
+  <nav class="side" aria-label="Devices and profiles">
+    <div class="side-label">Devices</div>
+    <button type="button" class="item" id="devKeyboard" data-tab="keyboard" aria-current="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+      <span class="item-text"><span class="item-name" id="kbdName">Keyboard</span><span class="item-sub" id="kbdSub">Checking…</span></span>
+      <span class="dot" id="kbdDot" aria-hidden="true"></span>
+    </button>
+    <button type="button" class="item" id="devMouse" data-tab="mouse" aria-current="false" hidden>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></svg>
+      <span class="item-text"><span class="item-name" id="mouseName">Mouse</span><span class="item-sub" id="mouseSub"></span></span>
+      <span class="dot" id="mouseDot" aria-hidden="true"></span>
+    </button>
+
+    <div class="side-label">Profiles
+      <button type="button" class="icon-btn small" id="newProfile" title="Save the current colors as a new profile" aria-label="New profile">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+    <div id="profileList" aria-label="Profiles"></div>
+    <form class="new-profile" id="newProfileForm" hidden>
+      <input type="text" id="newProfileName" placeholder="Profile name" spellcheck="false" aria-label="Name of the new profile">
+    </form>
+
+    <div class="side-foot">
+      <button type="button" class="item" id="openSettings" title="Settings (⌘,)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </button>
+      <span class="ver" id="version"></span>
+    </div>
   </nav>
-  <div id="status" title="Click to re-check"><span class="dot"></span><span class="txt">Checking…</span></div>
-  <button type="button" class="icon-btn" id="openSettings" title="Settings (⌘,)" aria-label="Settings">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-  </button>
-</header>
 
-<main>
-<section class="tab-panel" id="panelKeyboard" role="tabpanel">
-  <div class="board-wrap">
-    <div class="board" id="board"></div>
-  </div>
-  <p class="hint">Click a key to paint it with the current color. Click-and-drag to paint many. Right-click or Shift-click a key to clear it to the background. The board is a live preview; nothing is sent to the keyboard until you press <b>Apply to keyboard</b>.</p>
+  <main class="content" id="content">
+    <div id="contentInner">
+      <section class="panel" id="panelKeyboard">
+        <div class="toolbar">
+          <div>
+            <h1 id="profileTitle">Untitled</h1>
+            <div class="sub" id="profileState"></div>
+          </div>
+          <div class="actions">
+            <button type="button" class="icon-btn" id="moreActions" title="More profile actions" aria-label="More profile actions">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+            </button>
+            <button type="button" id="reset" title="Start over with an empty editor (the keyboard keeps its colors)">Reset</button>
+            <button type="button" id="off">Turn off</button>
+            <button type="button" id="save">Save</button>
+            <button type="button" class="primary" id="apply">Apply to keyboard</button>
+          </div>
+        </div>
 
-  <div class="controls">
-    <div class="card">
-      <h2>Paint color</h2>
-      <div class="row">
-        <input type="color" id="picker" value="#44d07b">
-        <input type="text" id="hex" class="hex" value="#44d07b" spellcheck="false">
-        <div class="swatches" id="swatches"></div>
-      </div>
-      <div class="row">
-        <label style="width:100%">Apply current color to a group:</label>
-        <div class="group-btns" id="groupBtns"></div>
-      </div>
+        <div class="board-wrap" id="boardWrap">
+          <div class="board" id="board" role="group" aria-label="Keyboard preview"></div>
+        </div>
+        <p class="hint">Click a key to paint it with the current color, drag to paint several. Right-click or Shift-click clears a key to the background. Nothing reaches the keyboard until you press <b>Apply to keyboard</b>.</p>
+
+        <div class="cards">
+          <section class="card" aria-labelledby="hPaint">
+            <h2 id="hPaint">Paint color</h2>
+            <div class="row">
+              <input type="color" id="picker" value="#44d07b" aria-label="Paint color">
+              <input type="text" id="hex" class="hex" value="#44d07b" spellcheck="false" aria-label="Paint color as hex">
+            </div>
+            <div class="swatches" id="swatches"></div>
+          </section>
+
+          <section class="card" aria-labelledby="hGroups">
+            <h2 id="hGroups">Paint a group</h2>
+            <div class="chips" id="groupBtns"></div>
+            <p class="note">Paints every key of the group with the paint color.</p>
+          </section>
+
+          <section class="card" aria-labelledby="hBoard">
+            <h2 id="hBoard">Background &amp; brightness</h2>
+            <div class="row">
+              <label for="bgPicker">Background</label>
+              <input type="color" id="bgPicker" value="#000000">
+              <input type="text" id="bgHex" class="hex" value="#000000" spellcheck="false" aria-label="Background as hex">
+            </div>
+            <div class="row">
+              <label for="bright">Brightness</label>
+              <input type="range" id="bright" min="0" max="100" value="100">
+              <span id="brightVal" style="width:42px; text-align:right; font-variant-numeric:tabular-nums;">100%</span>
+            </div>
+            <div class="row"><button id="applyBg" type="button">Clear all keys to the background</button></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel" id="panelMouse" hidden>
+        <div class="toolbar">
+          <div>
+            <h1 id="mouseTitle">Mouse</h1>
+            <div class="sub live" id="mouseState"></div>
+          </div>
+        </div>
+        <div class="cards">
+          <section class="card" aria-labelledby="hLight">
+            <h2 id="hLight">Lighting</h2>
+            <div class="row">
+              <label for="mColor">Color</label>
+              <input type="color" id="mColor" value="#3a7afe">
+              <input type="text" id="mColorHex" class="hex" value="#3a7afe" spellcheck="false" aria-label="Mouse color as hex">
+            </div>
+            <div class="swatches" id="mSwatches"></div>
+            <div class="row">
+              <button class="primary" id="mApplyColor" type="button">Apply color</button>
+              <button id="mSpectrum" type="button">Spectrum</button>
+              <button id="mWave" type="button">Wave</button>
+              <button id="mOff" type="button">Off</button>
+            </div>
+            <p class="note">The whole mouse is lit as one zone — the driver doesn’t expose the single underglow LEDs. The hardware wave has a direction but no speed.</p>
+          </section>
+
+          <section class="card" aria-labelledby="hDpi">
+            <h2 id="hDpi">Brightness &amp; DPI</h2>
+            <div class="row">
+              <label for="mBright">Brightness</label>
+              <input type="range" id="mBright" min="0" max="100" value="100">
+              <span id="mBrightVal" style="width:42px; text-align:right; font-variant-numeric:tabular-nums;">100%</span>
+              <button id="mApplyBright" type="button">Set</button>
+            </div>
+            <div class="row">
+              <label for="mDpi">DPI</label>
+              <input type="text" id="mDpi" class="hex" style="width:84px" placeholder="e.g. 3200" spellcheck="false">
+              <button id="mApplyDpi" type="button">Set</button>
+            </div>
+            <div class="dpi-presets" id="mDpiPresets"></div>
+          </section>
+        </div>
+      </section>
     </div>
+  </main>
+</div>
 
-    <div class="card">
-      <h2>Board settings</h2>
-      <div class="row">
-        <label>Background</label>
-        <input type="color" id="bgPicker" value="#000000">
-        <input type="text" id="bgHex" class="hex" value="#000000" spellcheck="false">
-        <button id="applyBg" type="button">Clear to background</button>
-      </div>
-      <div class="row">
-        <label>Brightness</label>
-        <input type="range" id="bright" min="0" max="100" value="100">
-        <span id="brightVal" style="width:42px; text-align:right; font-variant-numeric:tabular-nums;">100%</span>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Keyboard</h2>
-      <div class="row actions">
-        <button class="primary" id="apply" type="button">Apply to keyboard</button>
-        <button id="off" type="button">Turn off</button>
-        <button id="loadDefault" type="button">Load default profile</button>
-        <button class="danger" id="reset" type="button">Reset</button>
-      </div>
-      <p class="hint">Quit the “Razer macOS” menu-bar app first — it holds the keyboard open exclusively.</p>
-    </div>
-
-    <div class="card">
-      <h2>Profiles</h2>
-      <div class="row">
-        <label>Load profile</label>
-        <select id="sceneSelect"><option value="">— choose a profile —</option></select>
-        <button id="loadScene" type="button">Load</button>
-        <button id="deleteScene" class="danger" type="button" disabled>Delete…</button>
-      </div>
-      <div class="row">
-        <label>Load from file</label>
-        <button id="loadFile" type="button">Open .json…</button>
-        <span class="hint" style="margin:0">a profile you saved earlier</span>
-      </div>
-      <div class="row">
-        <label>Save as</label>
-        <input type="text" id="saveName" placeholder="my-profile" style="width:150px" spellcheck="false">
-        <button id="saveScene" type="button">Save profile</button>
-        <button id="saveFile" type="button">Save to file…</button>
-      </div>
-      <p class="hint">A profile stores the current colors, background and brightness. <b>Save profile</b> keeps it in the app’s profiles folder (Keyboard → Show Profiles Folder); <b>Save to file…</b> saves it anywhere via a native dialog. Load it again with <b>Open .json…</b>. <b>Delete…</b> moves a profile to the Trash; the backup keeps a copy for the grace period, so <i>Restore from Backup…</i> in the settings can bring it back.</p>
-    </div>
-  </div>
-</section>
-
-<section class="tab-panel" id="panelMouse" role="tabpanel" hidden>
-  <div class="controls">
-    <div class="card">
-      <h2>Lighting</h2>
-      <div class="row">
-        <label>Color</label>
-        <input type="color" id="mColor" value="#3a7afe">
-        <input type="text" id="mColorHex" class="hex" value="#3a7afe" spellcheck="false">
-        <div class="swatches" id="mSwatches"></div>
-      </div>
-      <div class="row actions">
-        <button class="primary" id="mApplyColor" type="button">Apply color</button>
-        <button id="mSpectrum" type="button">Spectrum</button>
-        <button id="mWave" type="button">Wave</button>
-        <button id="mOff" type="button">Off</button>
-      </div>
-      <p class="hint">The whole mouse is lit as one zone — the driver doesn’t expose the single underglow LEDs. The hardware wave has a direction but no speed.</p>
-    </div>
-
-    <div class="card">
-      <h2>Brightness &amp; DPI</h2>
-      <div class="row">
-        <label>Brightness</label>
-        <input type="range" id="mBright" min="0" max="100" value="100">
-        <span id="mBrightVal" style="width:42px; text-align:right; font-variant-numeric:tabular-nums;">100%</span>
-        <button id="mApplyBright" type="button">Set</button>
-      </div>
-      <div class="row">
-        <label>DPI</label>
-        <input type="text" id="mDpi" class="hex" style="width:84px" placeholder="e.g. 3200" spellcheck="false">
-        <button id="mApplyDpi" type="button">Set</button>
-        <div class="dpi-presets" id="mDpiPresets"></div>
-      </div>
-      <p class="hint" id="mouseStatus">Checking…</p>
-    </div>
-  </div>
-</section>
-</main>
-
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 <script src="renderer.js"></script>
 </body>
 </html>

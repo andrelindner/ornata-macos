@@ -11,7 +11,7 @@ const api = window.ornata;
 
 const state = {
   layout: null,          // from api.layout()
-  keyByName: {},         // NAME -> {row,col,label}
+  keyByName: {},         // NAME -> key of the layout ({ row, col, label, x, y, w, h })
   nameByCoord: {},       // "r,c" -> NAME
   colors: {},            // NAME -> "#hex" (only keys differing from bg)
   background: "#000000",
@@ -20,13 +20,24 @@ const state = {
   tab: "keyboard",       // "keyboard" | "mouse"
   keyboardInfo: null,    // last api.status() result
   mouseInfo: null,       // last api.mouseStatus() result
+  profiles: [],          // [{ name: "x.json", colors: ["#hex", …] }] in the profiles folder
+  profile: null,         // the profile file the editor shows, null for an unsaved one
+  draftName: "",         // title of an unsaved editor (e.g. a .json opened from a file)
+  onKeyboard: null,      // the profile file applied last, null if unnamed or off
+  dirty: false,          // edited since the profile was opened or saved
+  applied: false,        // the keyboard shows what the editor shows
 };
 
 const PALETTE = ["#ff0000","#ff7a00","#ffd500","#00ff33","#00e5ff","#3a7afe","#a24bff","#ff2e97","#ffffff","#000000"];
 const DPI_PRESETS = [800, 1600, 3200, 6400];
-// How often to look for the mouse while the window is visible, so its tab
+// How often to look for the mouse while the window is visible, so its entry
 // appears/disappears when it is plugged in or out.
 const MOUSE_POLL_MS = 15000;
+// Size of one key unit in px, fitted to the window width within these limits.
+const MIN_UNIT = 26, MAX_UNIT = 46, BOARD_PAD = 14, KEY_GAP = 4;
+// Caps drawn as a symbol get a larger font.
+const SYMBOL_CAP = /^[↹⇪⇧↵⌫☰↑↓←→]$/;
+const PROFILE_NAME = /^[\w.-]+$/;
 
 function toast(msg, isErr) {
   const t = $("#toast");
@@ -47,8 +58,10 @@ function normHex(v) {
   if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
   return "#" + h.toLowerCase();
 }
+const baseName = (file) => String(file).replace(/\.json$/i, "");
 
 // --- client-side token expansion (mirrors engine/layout.js) ---------------
+// Only keys of the current layout resolve; the rest have no key to show.
 function resolveName(token) {
   const raw = String(token).trim();
   const coord = raw.match(/^(\d+)\s*,\s*(\d+)$/);
@@ -70,31 +83,82 @@ function expandNames(token, extraGroups) {
   return n ? [n] : [];
 }
 
-// --- rendering --------------------------------------------------------------
+// NAME -> "#hex" for every key a scene colors (later entries win). Keys an
+// older profile doesn't know take their neighbors' color, as on the keyboard
+// (see FILL_BETWEEN in engine/layout.js).
+function sceneKeyColors(scene) {
+  const colors = {};
+  const extra = scene.groups || {};
+  for (const [token, color] of Object.entries(scene.keys || {})) {
+    const hex = normHex(color); if (!hex) continue;
+    for (const name of expandNames(token, extra)) colors[name] = hex;
+  }
+  for (const [name, [a, b]] of Object.entries(state.layout.fillBetween)) {
+    if (state.keyByName[name] && !(name in colors) && colors[a] && colors[a] === colors[b]) colors[name] = colors[a];
+  }
+  return colors;
+}
+
+// Up to three colors that cover the most keys of a scene, for the sidebar.
+function profileColors(scene) {
+  const bg = normHex(scene.background || "#000000") || "#000000";
+  const colors = sceneKeyColors(scene);
+  const counts = new Map();
+  for (const k of state.layout.keys) {
+    const c = colors[k.name] || bg;
+    counts.set(c, (counts.get(c) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
+}
+
+// --- keyboard layout + board ------------------------------------------------
+async function loadLayout() {
+  state.layout = await api.layout();
+  state.keyByName = {};
+  state.nameByCoord = {};
+  for (const k of state.layout.keys) {
+    state.keyByName[k.name] = k;
+    state.nameByCoord[`${k.row},${k.col}`] = k.name;
+  }
+}
+
 function renderBoard() {
   const board = $("#board");
-  board.innerHTML = "";
-  for (const k of state.layout.keys) {
+  board.style.setProperty("--bw", state.layout.width);
+  board.style.setProperty("--bh", state.layout.height);
+  board.replaceChildren(...state.layout.keys.map((k) => {
     const el = document.createElement("div");
-    el.className = "key";
+    el.className = "key" + (k.shape ? " " + k.shape : "") + (SYMBOL_CAP.test(k.label) ? " sym" : "");
     el.dataset.name = k.name;
-    el.style.gridColumn = (k.col + 1);
-    el.style.gridRow = (k.row + 1);
+    el.style.cssText = `--x:${k.x};--y:${k.y};--w:${k.w};--h:${k.h}`;
     el.title = `${k.name}  (row ${k.row}, col ${k.col})`;
     const span = document.createElement("span");
     span.className = "name";
     span.textContent = k.label;
     el.appendChild(span);
-    board.appendChild(el);
-  }
+    return el;
+  }));
+  fitBoard();
   paintPreview();
 }
+
+// Scale the keys to the space the window gives the board.
+function fitBoard() {
+  const wrap = $("#boardWrap");
+  const cs = getComputedStyle(wrap);
+  const avail = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  if (avail <= 0 || !state.layout) return;
+  const unit = Math.floor((avail - 2 * BOARD_PAD + KEY_GAP) / state.layout.width);
+  $("#board").style.setProperty("--u", Math.max(MIN_UNIT, Math.min(MAX_UNIT, unit)) + "px");
+}
+
+function paintKey(el) {
+  const c = state.colors[el.dataset.name] || state.background;
+  el.style.setProperty("--c", c);
+  el.style.color = contrast(c);
+}
 function paintPreview() {
-  for (const el of document.querySelectorAll(".key")) {
-    const c = state.colors[el.dataset.name] || state.background;
-    el.style.background = c;
-    el.style.color = contrast(c);
-  }
+  for (const el of document.querySelectorAll(".key")) paintKey(el);
 }
 function setKey(name, color) {
   if (color === null) delete state.colors[name];
@@ -105,11 +169,9 @@ function setKey(name, color) {
 let painting = false, paintMode = "set";
 function applyPaintTo(el) {
   if (!el || !el.classList.contains("key")) return;
-  const name = el.dataset.name;
-  if (paintMode === "clear") setKey(name, null);
-  else setKey(name, state.paint);
-  const c = state.colors[name] || state.background;
-  el.style.background = c; el.style.color = contrast(c);
+  setKey(el.dataset.name, paintMode === "clear" ? null : state.paint);
+  paintKey(el);
+  markEdited();
 }
 function wireBoard() {
   const board = $("#board");
@@ -127,201 +189,307 @@ function wireBoard() {
   });
   board.addEventListener("contextmenu", (e) => { e.preventDefault(); });
   window.addEventListener("mouseup", () => { painting = false; });
+  new ResizeObserver(fitBoard).observe($("#boardWrap"));
 }
 
-// --- spec / status ----------------------------------------------------------
+// --- editor state -----------------------------------------------------------
+// The keys in FILL_BETWEEN are always written, so a key left at the
+// background stays that way instead of taking its neighbors' color.
 function currentSpec() {
-  return { brightness: state.brightness, background: state.background, keys: Object.assign({}, state.colors) };
-}
-async function refreshStatus() {
-  const s = $("#status");
-  s.className = ""; s.querySelector(".txt").textContent = "Checking…";
-  try {
-    state.keyboardInfo = await api.status();
-  } catch (e) {
-    state.keyboardInfo = { ok: false, code: "APP_ERROR" };
+  const keys = Object.assign({}, state.colors);
+  for (const name of Object.keys(state.layout.fillBetween)) {
+    if (state.keyByName[name] && !(name in keys)) keys[name] = state.background;
   }
-  $("#tabKeyboard").textContent = state.keyboardInfo.ok ? state.keyboardInfo.name : "Keyboard";
-  renderStatus();
+  return { brightness: state.brightness, background: state.background, keys };
 }
 
-// The status pill describes the device of the active tab.
-function renderStatus() {
-  const s = $("#status");
-  const txt = s.querySelector(".txt");
-  const info = state.tab === "mouse" ? state.mouseInfo : state.keyboardInfo;
-  if (!info) { s.className = ""; txt.textContent = "Checking…"; return; }
-  if (info.ok) {
-    s.className = "ok";
-    txt.textContent = `${info.name} connected` + (state.tab === "mouse" && info.dpi != null ? ` · ${info.dpi} DPI` : "");
-  } else if (info.code === "DEVICE_BUSY") {
-    s.className = "busy"; txt.textContent = "Quit “Razer macOS” app first";
-  } else if (info.code === "NO_ADDON") {
-    s.className = "err"; txt.textContent = "addon.node missing";
-  } else if (info.code === "APP_ERROR") {
-    s.className = "err"; txt.textContent = "App error";
-  } else {
-    s.className = "err"; txt.textContent = state.tab === "mouse" ? "No mouse found" : "No keyboard found";
-  }
+// Toolbar title and state line, plus the marks in the profile list.
+function renderEditorState() {
+  $("#profileTitle").textContent = state.profile ? baseName(state.profile) : (state.draftName || "Untitled");
+  const parts = [];
+  if (state.dirty) parts.push("Unsaved changes");
+  parts.push(state.applied ? "On the keyboard" : "Not applied yet");
+  const line = $("#profileState");
+  line.textContent = parts.join(" · ");
+  line.classList.toggle("live", state.applied);
+  renderProfiles();
+}
+function markEdited() {
+  if (state.dirty && !state.applied) return;
+  state.dirty = true;
+  state.applied = false;
+  renderEditorState();
 }
 
-// --- tabs -------------------------------------------------------------------
-function showTab(tab) {
-  state.tab = tab;
-  for (const b of document.querySelectorAll(".tabs button")) {
-    const on = b.dataset.tab === tab;
-    b.classList.toggle("active", on);
-    b.setAttribute("aria-selected", String(on));
-  }
-  $("#panelKeyboard").hidden = tab !== "keyboard";
-  $("#panelMouse").hidden = tab !== "mouse";
-  renderStatus();
+function loadSceneObject(scene) {
+  state.background = normHex(scene.background || "#000000") || "#000000";
+  state.brightness = (scene.brightness !== undefined) ? Number(scene.brightness) : state.brightness;
+  state.colors = sceneKeyColors(scene);
+  $("#bgPicker").value = state.background; $("#bgHex").value = state.background;
+  $("#bright").value = state.brightness; $("#brightVal").textContent = state.brightness + "%";
+  paintPreview();
 }
 
+// Show a scene in the editor. profile: its file in the profiles folder, or
+// null with a draft title (a file opened from elsewhere).
+function showScene(scene, profile, draftName) {
+  loadSceneObject(scene);
+  state.profile = profile;
+  state.draftName = profile ? "" : (draftName || "");
+  state.dirty = false;
+  state.applied = !!profile && profile === state.onKeyboard;
+  renderEditorState();
+}
+
+// --- profiles ---------------------------------------------------------------
+async function refreshProfiles() {
+  const names = (await api.listScenes()).scenes;
+  state.profiles = await Promise.all(names.map(async (name) => {
+    const d = await api.loadScene(name);
+    return { name, colors: d.ok ? profileColors(d.scene) : [] };
+  }));
+  renderProfiles();
+}
+
+function renderProfiles() {
+  $("#profileList").replaceChildren(...state.profiles.map((p) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "item";
+    b.dataset.name = p.name;
+    b.setAttribute("aria-current", String(p.name === state.profile));
+    const dots = document.createElement("span");
+    dots.className = "dots";
+    dots.setAttribute("aria-hidden", "true");
+    for (const c of p.colors) {
+      const i = document.createElement("i");
+      i.style.background = c;
+      dots.appendChild(i);
+    }
+    const name = document.createElement("span");
+    name.className = "item-name";
+    name.textContent = baseName(p.name);
+    b.append(dots, name);
+    if (p.name === state.onKeyboard) {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = "On keyboard";
+      b.appendChild(badge);
+    }
+    return b;
+  }));
+}
+
+async function openProfile(name) {
+  const d = await api.loadScene(name);
+  if (!d.ok) { toast(d.error || "Load failed", true); return false; }
+  showScene(d.scene, d.name);
+  return true;
+}
+
+async function saveEditor() {
+  if (!state.profile) { startNewProfile(state.draftName); return; }
+  const r = await api.saveScene(state.profile, currentSpec());
+  if (!r.ok) { toast(r.error || "Save failed", true); return; }
+  state.dirty = false;
+  renderEditorState();
+  toast(`Saved ${baseName(r.name)}`);
+  refreshProfiles();
+}
+
+// The + button: name the current colors as a new profile, right in the list.
+function startNewProfile(prefill) {
+  const form = $("#newProfileForm");
+  const input = $("#newProfileName");
+  form.hidden = false;
+  input.value = prefill || "";
+  input.focus();
+  input.select();
+}
+function endNewProfile() {
+  $("#newProfileForm").hidden = true;
+}
+async function saveNewProfile() {
+  const name = $("#newProfileName").value.trim().replace(/\.json$/i, "");
+  if (!name) { endNewProfile(); return; }
+  if (!PROFILE_NAME.test(name)) { toast("Use letters, digits, “-”, “_” and “.” for the name.", true); return; }
+  if (state.profiles.some((p) => baseName(p.name).toLowerCase() === name.toLowerCase())) {
+    toast(`A profile named “${name}” already exists.`, true);
+    return;
+  }
+  const r = await api.saveScene(name, currentSpec());
+  if (!r.ok) { toast(r.error || "Save failed", true); return; }
+  endNewProfile();
+  state.profile = r.name;
+  state.draftName = "";
+  state.dirty = false;
+  renderEditorState();
+  toast(`Saved profile ${baseName(r.name)}`);
+  refreshProfiles();
+}
+
+// The default profile is the fallback for the tray and launch; it can only be
+// overwritten, not deleted.
+async function deleteProfile(name) {
+  const r = await api.deleteScene(name);
+  if (r.canceled) return;
+  if (!r.ok) { toast(r.error || "Delete failed", true); return; }
+  if (state.profile === r.name) {
+    // The colors stay in the editor as an unsaved profile.
+    state.profile = null;
+    state.draftName = baseName(r.name);
+    state.dirty = true;
+  }
+  if (state.onKeyboard === r.name) state.onKeyboard = null;
+  renderEditorState();
+  await refreshProfiles();
+  const shown = baseName(r.name);
+  if (r.warning) toast(`Deleted ${shown}. The backup failed: ${r.warning}`, true);
+  else toast(`Deleted ${shown}`);
+}
+
+async function profileMenu(name) {
+  const choice = await api.popupMenu([
+    { id: "open", label: "Open" },
+    { id: "apply", label: "Apply to Keyboard" },
+    { type: "separator" },
+    { id: "delete", label: `Delete “${baseName(name)}”…`, enabled: name !== "default.json" },
+  ]);
+  if (choice === "open") openProfile(name);
+  else if (choice === "apply") { if (await openProfile(name)) applyEditor(); }
+  else if (choice === "delete") deleteProfile(name);
+}
+
+async function moreMenu() {
+  const cur = state.profile;
+  const choice = await api.popupMenu([
+    { id: "default", label: "Apply Default Profile" },
+    { type: "separator" },
+    { id: "openFile", label: "Open .json…" },
+    { id: "saveFile", label: "Save to File…" },
+    { type: "separator" },
+    { id: "delete", label: cur ? `Delete “${baseName(cur)}”…` : "Delete…", enabled: !!cur && cur !== "default.json" },
+    { id: "folder", label: "Show Profiles Folder" },
+  ]);
+  if (choice === "default") applyDefault();
+  else if (choice === "openFile") openFile();
+  else if (choice === "saveFile") saveFile();
+  else if (choice === "delete") deleteProfile(cur);
+  else if (choice === "folder") api.settings.showProfiles();
+}
+
+async function openFile() {
+  const d = await api.loadSceneFile();
+  if (d.canceled) return;
+  if (!d.ok) { toast(d.error || "Could not read that file", true); return; }
+  showScene(d.scene, null, baseName(d.name));
+  toast(`Opened ${d.name}`);
+}
+async function saveFile() {
+  const suggested = state.profile ? baseName(state.profile) : (state.draftName || "profile");
+  const r = await api.saveSceneFile(currentSpec(), suggested);
+  if (r.canceled) return;
+  if (r.ok) toast(`Saved ${r.name}`);
+  else toast(r.error || "Save failed", true);
+}
+
+// --- keyboard actions -------------------------------------------------------
 function handleDeviceResult(r, okMsg) {
   if (r.ok) { toast(okMsg); refreshStatus(); }
   else if (r.code === "DEVICE_BUSY") { toast("Quit the “Razer macOS” menu-bar app first, then try again.", true); refreshStatus(); }
   else { toast(r.error || "Failed", true); }
 }
 
-// --- mouse ------------------------------------------------------------------
-// The mouse tab only exists while a supported mouse (Basilisk V3) is found.
+async function applyEditor() {
+  const r = await api.applyKeyboard(currentSpec(), state.profile);
+  if (r.ok) {
+    state.onKeyboard = state.profile;
+    state.applied = true;
+    renderEditorState();
+  }
+  handleDeviceResult(r, r.ok ? `Applied ${r.litCells} cell(s) to ${r.device}.` : "");
+}
+async function applyDefault() {
+  if (!(await openProfile("default"))) return;
+  await applyEditor();
+}
+async function turnOff() {
+  const r = await api.keyboardOff();
+  if (r.ok) {
+    state.onKeyboard = null;
+    state.applied = false;
+    renderEditorState();
+  }
+  handleDeviceResult(r, "Keyboard turned off.");
+}
+
+// --- devices ----------------------------------------------------------------
+function deviceStatus(info, isMouse) {
+  if (!info) return { text: "Checking…", dot: "" };
+  if (info.ok) {
+    return { text: isMouse && info.dpi != null ? `Connected · ${info.dpi} DPI` : "Connected", dot: "ok" };
+  }
+  const text = {
+    DEVICE_BUSY: "Quit “Razer macOS” first",
+    NO_ADDON: "addon.node missing",
+    APP_ERROR: "App error",
+  }[info.code] || "Not found";
+  return { text, dot: "err" };
+}
+
+function renderDevices() {
+  const k = deviceStatus(state.keyboardInfo, false);
+  $("#kbdName").textContent = state.keyboardInfo && state.keyboardInfo.ok ? state.keyboardInfo.name : "Keyboard";
+  $("#kbdSub").textContent = k.text;
+  $("#kbdDot").className = "dot " + k.dot;
+
+  const m = deviceStatus(state.mouseInfo, true);
+  const mouse = state.mouseInfo && state.mouseInfo.ok ? state.mouseInfo : null;
+  $("#devMouse").hidden = !mouse;
+  $("#mouseName").textContent = mouse ? mouse.name : "Mouse";
+  $("#mouseSub").textContent = m.text;
+  $("#mouseDot").className = "dot " + m.dot;
+  $("#mouseTitle").textContent = mouse ? mouse.name : "Mouse";
+  $("#mouseState").textContent = m.text;
+}
+
+async function refreshStatus() {
+  try {
+    state.keyboardInfo = await api.status();
+  } catch (e) {
+    state.keyboardInfo = { ok: false, code: "APP_ERROR" };
+  }
+  renderDevices();
+}
+
+// The mouse only shows while a supported mouse (Basilisk V3) is found.
 async function refreshMouseStatus() {
   let info;
   try { info = await api.mouseStatus(); } catch (e) { info = { ok: false, code: "APP_ERROR" }; }
   state.mouseInfo = info;
-  const tabBtn = $("#tabMouse");
-  tabBtn.hidden = !info.ok;
   if (info.ok) {
-    tabBtn.textContent = info.name;
-    $("#mouseStatus").textContent = `${info.name} connected` + (info.dpi != null ? `, currently ${info.dpi} DPI.` : ".");
     if (info.dpi != null && !$("#mDpi").value) $("#mDpi").value = info.dpi;
   } else if (state.tab === "mouse") {
     showTab("keyboard");
     toast(info.code === "DEVICE_BUSY" ? "Mouse busy — quit the “Razer macOS” app first." : "Mouse disconnected.", true);
   }
-  renderStatus();
+  renderDevices();
 }
+
+function showTab(tab) {
+  state.tab = tab;
+  $("#devKeyboard").setAttribute("aria-current", String(tab === "keyboard"));
+  $("#devMouse").setAttribute("aria-current", String(tab === "mouse"));
+  $("#panelKeyboard").hidden = tab !== "keyboard";
+  $("#panelMouse").hidden = tab !== "mouse";
+}
+
+// --- mouse ------------------------------------------------------------------
 async function mouseApply(opts, okMsg) {
   const r = await api.mouse(opts);
   if (r.ok) { toast(okMsg); refreshMouseStatus(); }
   else if (r.code === "DEVICE_BUSY") { toast("Quit the “Razer macOS” menu-bar app first, then try again.", true); refreshMouseStatus(); }
   else { toast(r.error || "Failed", true); }
-}
-
-// --- loading a scene into the editor ---------------------------------------
-function loadSceneObject(scene) {
-  state.background = normHex(scene.background || "#000000") || "#000000";
-  state.brightness = (scene.brightness !== undefined) ? Number(scene.brightness) : state.brightness;
-  state.colors = {};
-  const extra = scene.groups || {};
-  for (const [token, color] of Object.entries(scene.keys || {})) {
-    const hex = normHex(color); if (!hex) continue;
-    for (const name of expandNames(token, extra)) state.colors[name] = hex;
-  }
-  $("#bgPicker").value = state.background; $("#bgHex").value = state.background;
-  $("#bright").value = state.brightness; $("#brightVal").textContent = state.brightness + "%";
-  paintPreview();
-}
-
-// --- init -------------------------------------------------------------------
-async function init() {
-  state.layout = await api.layout();
-  for (const k of state.layout.keys) {
-    state.keyByName[k.name] = k;
-    state.nameByCoord[`${k.row},${k.col}`] = k.name;
-  }
-  renderBoard();
-  wireBoard();
-
-  const sw = $("#swatches");
-  for (const c of PALETTE) {
-    const d = document.createElement("div");
-    d.className = "swatch"; d.style.background = c; d.title = c;
-    d.onclick = () => setPaint(c);
-    sw.appendChild(d);
-  }
-  const gb = $("#groupBtns");
-  for (const g of Object.keys(state.layout.groups)) {
-    const b = document.createElement("button");
-    b.textContent = g; b.type = "button";
-    b.onclick = () => {
-      for (const name of expandNames(g)) setKey(name, state.paint);
-      paintPreview();
-      toast(`Painted group ${g}`);
-    };
-    gb.appendChild(b);
-  }
-  await fillSceneSelect();
-
-  const msw = $("#mSwatches");
-  for (const c of PALETTE) {
-    const d = document.createElement("div");
-    d.className = "swatch"; d.style.background = c; d.title = c;
-    d.onclick = () => setMPaint(c);
-    msw.appendChild(d);
-  }
-  const dp = $("#mDpiPresets");
-  for (const v of DPI_PRESETS) {
-    const b = document.createElement("button");
-    b.type = "button"; b.textContent = v;
-    b.onclick = () => { $("#mDpi").value = v; mouseApply({ dpi: v }, `Mouse DPI ${v}`); };
-    dp.appendChild(b);
-  }
-
-  wireControls();
-
-  const info = await api.appInfo();
-  $("#version").textContent = `v${info.version}`;
-  document.title = `${info.name} ${info.version}`;
-
-  // The keyboard tab is the tallest view; the window opens at its height.
-  api.reportContentHeight(document.documentElement.scrollHeight);
-
-  // Show the profile that is currently on the keyboard (applied at launch or
-  // from the tray) instead of starting from an empty board.
-  const cur = await api.currentScene();
-  if (cur && cur.scene) loadSceneObject(cur.scene);
-
-  refreshStatus();
-  refreshMouseStatus();
-  window.addEventListener("focus", refreshMouseStatus);
-  setInterval(() => { if (!document.hidden) refreshMouseStatus(); }, MOUSE_POLL_MS);
-
-  // A restore from a backup changed the profiles folder.
-  api.onProfilesChanged(() => fillSceneSelect());
-
-  // The tray "Apply Default Profile" reflects into the editor.
-  api.onSceneLoaded(async (applied) => {
-    if (applied && applied.scene) {
-      loadSceneObject(applied.scene);
-    } else {
-      const d = await api.loadScene("default");
-      if (d.ok) loadSceneObject(d.scene);
-    }
-    toast("Default profile applied");
-    refreshStatus();
-  });
-}
-
-async function fillSceneSelect() {
-  const sel = $("#sceneSelect");
-  const keep = sel.value;
-  sel.length = 1; // keep the "choose a profile" placeholder
-  for (const f of (await api.listScenes()).scenes) {
-    const o = document.createElement("option"); o.value = f; o.textContent = f; sel.appendChild(o);
-  }
-  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "";
-  updateDeleteButton();
-}
-
-// The default profile is the fallback for the tray and launch; it can only be
-// overwritten, not deleted.
-function updateDeleteButton() {
-  const name = $("#sceneSelect").value;
-  const btn = $("#deleteScene");
-  btn.disabled = !name || name === "default.json";
-  btn.title = name === "default.json" ? "The default profile can’t be deleted" : "";
 }
 
 let mPaint = "#3a7afe";
@@ -335,87 +503,153 @@ function setPaint(hex) {
   state.paint = h; $("#picker").value = h; $("#hex").value = h;
 }
 
+function swatchButton(color, onPick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "swatch";
+  b.style.background = color;
+  b.title = color;
+  b.setAttribute("aria-label", color);
+  b.onclick = () => onPick(color);
+  return b;
+}
+
+// The window opens at the height of the keyboard view (see main.js).
+function contentHeight() {
+  const cs = getComputedStyle($("#content"));
+  return $("#contentInner").offsetHeight + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+}
+
+// --- init -------------------------------------------------------------------
+async function init() {
+  await loadLayout();
+  renderBoard();
+  wireBoard();
+
+  $("#swatches").append(...PALETTE.map((c) => swatchButton(c, setPaint)));
+  $("#groupBtns").append(...Object.keys(state.layout.groups).map((g) => {
+    const b = document.createElement("button");
+    b.textContent = g; b.type = "button";
+    b.onclick = () => {
+      for (const name of expandNames(g)) setKey(name, state.paint);
+      paintPreview();
+      markEdited();
+      toast(`Painted group ${g}`);
+    };
+    return b;
+  }));
+  $("#mSwatches").append(...PALETTE.map((c) => swatchButton(c, setMPaint)));
+  $("#mDpiPresets").append(...DPI_PRESETS.map((v) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = v;
+    b.onclick = () => { $("#mDpi").value = v; mouseApply({ dpi: v }, `Mouse DPI ${v}`); };
+    return b;
+  }));
+
+  wireControls();
+
+  const info = await api.appInfo();
+  $("#version").textContent = `v${info.version}`;
+  document.title = `${info.name} ${info.version}`;
+
+  // Show the profile that is currently on the keyboard (applied at launch or
+  // from the tray) instead of starting from an empty board.
+  const cur = await api.currentScene();
+  if (cur && cur.scene) {
+    state.onKeyboard = cur.name;
+    showScene(cur.scene, cur.name);
+    state.applied = true;
+  }
+  renderEditorState();
+  await refreshProfiles();
+
+  api.reportContentHeight(contentHeight());
+
+  refreshStatus();
+  refreshMouseStatus();
+  window.addEventListener("focus", refreshMouseStatus);
+  setInterval(() => { if (!document.hidden) refreshMouseStatus(); }, MOUSE_POLL_MS);
+
+  // A restore from a backup changed the profiles folder.
+  api.onProfilesChanged(() => refreshProfiles());
+
+  // Another layout was picked in the settings: same colors, other key caps.
+  api.onLayoutChanged(async () => {
+    const spec = currentSpec();
+    await loadLayout();
+    renderBoard();
+    loadSceneObject(spec);
+    refreshProfiles();
+  });
+
+  // The tray applied the default profile or turned the keyboard off.
+  api.onSceneLoaded((applied) => {
+    if (applied && applied.name && applied.scene) {
+      state.onKeyboard = applied.name;
+      showScene(applied.scene, applied.name);
+      toast(`${baseName(applied.name)} applied`);
+    } else {
+      state.onKeyboard = null;
+      state.applied = false;
+      renderEditorState();
+      toast("Keyboard turned off");
+    }
+    refreshStatus();
+  });
+}
+
 function wireControls() {
-  $("#status").onclick = () => (state.tab === "mouse" ? refreshMouseStatus() : refreshStatus());
+  for (const b of [$("#devKeyboard"), $("#devMouse")]) {
+    b.title = "Click again to check the connection";
+    b.onclick = () => {
+      if (state.tab !== b.dataset.tab) showTab(b.dataset.tab);
+      else if (b.dataset.tab === "mouse") refreshMouseStatus();
+      else refreshStatus();
+    };
+  }
   $("#openSettings").onclick = () => api.openSettings();
-  for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => showTab(b.dataset.tab);
-  $("#picker").oninput = (e) => setPaint(e.target.value);
-  $("#hex").onchange = (e) => { const h = normHex(e.target.value); if (h) setPaint(h); else e.target.value = state.paint; };
 
-  $("#bgPicker").oninput = (e) => { state.background = e.target.value; $("#bgHex").value = e.target.value; paintPreview(); };
-  $("#bgHex").onchange = (e) => { const h = normHex(e.target.value); if (h) { state.background = h; $("#bgPicker").value = h; $("#bgHex").value = h; paintPreview(); } else e.target.value = state.background; };
-  $("#applyBg").onclick = () => { state.colors = {}; paintPreview(); toast("Cleared all keys to background"); };
+  const list = $("#profileList");
+  list.onclick = (e) => {
+    const b = e.target.closest("button[data-name]");
+    if (b) openProfile(b.dataset.name);
+  };
+  list.oncontextmenu = (e) => {
+    const b = e.target.closest("button[data-name]");
+    if (!b) return;
+    e.preventDefault();
+    profileMenu(b.dataset.name);
+  };
+  $("#newProfile").onclick = () => ($("#newProfileForm").hidden ? startNewProfile("") : endNewProfile());
+  $("#newProfileForm").onsubmit = (e) => { e.preventDefault(); saveNewProfile(); };
+  $("#newProfileName").onkeydown = (e) => { if (e.key === "Escape") endNewProfile(); };
 
-  $("#bright").oninput = (e) => { state.brightness = Number(e.target.value); $("#brightVal").textContent = state.brightness + "%"; };
-
-  $("#apply").onclick = async () => {
-    const r = await api.applyKeyboard(currentSpec());
-    handleDeviceResult(r, r.ok ? `Applied ${r.litCells} cell(s) to ${r.device}.` : "");
-  };
-  $("#off").onclick = async () => {
-    const r = await api.keyboardOff();
-    handleDeviceResult(r, "Keyboard turned off.");
-  };
-  $("#loadDefault").onclick = async () => {
-    const d = await api.loadScene("default");
-    if (!d.ok) { toast(d.error || "No default profile", true); return; }
-    loadSceneObject(d.scene);
-    const r = await api.applyKeyboard(currentSpec());
-    handleDeviceResult(r, r.ok ? `Loaded & applied default profile (${r.litCells} cells).` : "");
-  };
+  $("#moreActions").onclick = () => moreMenu();
+  $("#save").onclick = () => saveEditor();
+  $("#apply").onclick = () => applyEditor();
+  $("#off").onclick = () => turnOff();
   $("#reset").onclick = () => {
     state.colors = {}; state.background = "#000000"; state.brightness = 100;
     $("#bgPicker").value = "#000000"; $("#bgHex").value = "#000000";
     $("#bright").value = 100; $("#brightVal").textContent = "100%";
-    paintPreview(); toast("Editor reset (not sent to keyboard)");
+    paintPreview();
+    state.profile = null; state.draftName = ""; state.dirty = false; state.applied = false;
+    renderEditorState();
+    toast("Editor reset (the keyboard keeps its colors)");
   };
 
-  $("#loadScene").onclick = async () => {
-    const name = $("#sceneSelect").value;
-    if (!name) { toast("Choose a profile first", true); return; }
-    const d = await api.loadScene(name);
-    if (!d.ok) { toast(d.error || "Load failed", true); return; }
-    loadSceneObject(d.scene);
-    toast(`Loaded ${name} into editor`);
+  $("#picker").oninput = (e) => setPaint(e.target.value);
+  $("#hex").onchange = (e) => { const h = normHex(e.target.value); if (h) setPaint(h); else e.target.value = state.paint; };
+
+  $("#bgPicker").oninput = (e) => { state.background = e.target.value; $("#bgHex").value = e.target.value; paintPreview(); markEdited(); };
+  $("#bgHex").onchange = (e) => {
+    const h = normHex(e.target.value);
+    if (!h) { e.target.value = state.background; return; }
+    state.background = h; $("#bgPicker").value = h; $("#bgHex").value = h; paintPreview(); markEdited();
   };
-  $("#sceneSelect").onchange = updateDeleteButton;
-  $("#deleteScene").onclick = async () => {
-    const name = $("#sceneSelect").value;
-    if (!name) return;
-    const r = await api.deleteScene(name);
-    if (r.canceled) return;
-    if (!r.ok) { toast(r.error || "Delete failed", true); return; }
-    await fillSceneSelect();
-    const shown = r.name.replace(/\.json$/, "");
-    if (r.warning) toast(`Deleted ${shown}. The backup failed: ${r.warning}`, true);
-    else toast(`Deleted ${shown}`);
-  };
-  $("#loadFile").onclick = async () => {
-    const d = await api.loadSceneFile();
-    if (d.canceled) return;
-    if (!d.ok) { toast(d.error || "Could not read that file", true); return; }
-    loadSceneObject(d.scene);
-    toast(`Loaded ${d.name} into editor`);
-  };
-  $("#saveScene").onclick = async () => {
-    const name = $("#saveName").value.trim();
-    if (!name) { toast("Enter a name to save", true); return; }
-    const r = await api.saveScene(name, currentSpec());
-    if (r.ok) {
-      toast(`Saved profile ${r.name}`);
-      const sel = $("#sceneSelect");
-      if (![...sel.options].some(o => o.value === r.name)) {
-        const o = document.createElement("option"); o.value = r.name; o.textContent = r.name; sel.appendChild(o);
-      }
-    } else toast(r.error || "Save failed", true);
-  };
-  $("#saveFile").onclick = async () => {
-    const suggested = ($("#saveName").value.trim() || "profile").replace(/\.json$/,"");
-    const r = await api.saveSceneFile(currentSpec(), suggested);
-    if (r.canceled) return;
-    if (r.ok) toast(`Saved ${r.name}`);
-    else toast(r.error || "Save failed", true);
-  };
+  $("#applyBg").onclick = () => { state.colors = {}; paintPreview(); markEdited(); toast("Cleared all keys to the background"); };
+
+  $("#bright").oninput = (e) => { state.brightness = Number(e.target.value); $("#brightVal").textContent = state.brightness + "%"; markEdited(); };
 
   // mouse controls
   $("#mColor").oninput = (e) => setMPaint(e.target.value);

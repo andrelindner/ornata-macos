@@ -90,6 +90,10 @@ function render(next) {
     input.checked = input.hasAttribute("data-invert") ? !v : v;
   }
 
+  const layout = $("#keyboardLayout");
+  layout.replaceChildren(...state.keyboard.layouts.map((l) => el("option", { value: l.id, textContent: l.name })));
+  layout.value = state.keyboard.layout;
+
   const stored = $("#startupStored");
   stored.replaceChildren(c.startupColor ? swatch(c.startupColor) : "", c.startupColor || "not set by this app");
   const sel = $("#startupChoice");
@@ -222,6 +226,7 @@ function wire() {
     };
   }
   $("#retention").onchange = async (e) => render(await api.set("backupRetentionDays", Number(e.target.value)));
+  $("#keyboardLayout").onchange = async (e) => render(await api.set("keyboardLayout", e.target.value));
 
   $("#storeStartup").onclick = async () => {
     const color = $("#startupChoice").value;
