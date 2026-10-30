@@ -1,24 +1,26 @@
 // ornata-keys — macro helper for Ornata Lighting.
 // Copyright (C) 2025 André Lindner. GNU General Public License v2.0 or later.
 //
-// Watches the keyboard for macro shortcuts, records key presses and plays
-// macros back as synthetic key events. The app's main process (src/macros.js)
+// Watches the keyboard for macro shortcuts, records key presses and mouse
+// clicks and plays macros back as synthetic key and mouse events. The app's main process (src/macros.js)
 // starts it and talks to it with one JSON object per line:
 //
-//   stdin  {"cmd":"macros","list":[{id, mods, keys, presses:[{key,at,hold}], repeat:{mode,times}}]}
-//          {"cmd":"capture","on":true}     report every key, shortcuts paused
+//   stdin  {"cmd":"macros","list":[{id, mods, keys, presses:[…], repeat:{mode,times}}]}
+//            a press is {key,at,hold} or {button,at,hold,x,y,fixed}
+//          {"cmd":"capture","on":true}     report every key and click, shortcuts paused
 //          {"cmd":"play","id":"…","delay":3000}
 //          {"cmd":"stop"}
 //          {"cmd":"permissions"}, {"cmd":"requestPermissions"}, {"cmd":"keyNames"}
 //   stdout {"event":"ready"}, {"event":"permissions",…}, {"event":"tap","active":…}
 //          {"event":"key","key":…,"down":…,"t":…,"mods":[…]}   (while capturing)
+//          {"event":"mouse","button":…,"down":…,"t":…,"x":…,"y":…}
 //          {"event":"playing","id":…}, {"event":"stopped","id":…,"reason":…}
 //          {"event":"keyNames","names":{…}}, {"event":"error","message":…}
 //
 // Key codes are macOS virtual key codes. `--selftest` checks the shortcut
 // matching and the playback timeline without touching the keyboard.
 // `--dry-run` (development) never watches the keyboard and only reports the
-// keys it would press, {"event":"dry","key":…,"down":…}, so macOS asks for no
+// keys it would press, {"event":"dry","key"|"button":…,"down":…}, so macOS asks for no
 // permission.
 
 import ApplicationServices
@@ -35,6 +37,11 @@ let TAP_RETRY_S = 2.0
 let DRY_RUN = CommandLine.arguments.contains("--dry-run")
 // Playback naps through the last few ms before a key event to hit it on time.
 let SPIN_MS = 15
+// Mouse buttons: 0 left, 1 right, 2 middle, 3 and 4 the side buttons.
+let MAX_BUTTON = 4
+// Clicks of one button this close together count as a double (triple …) click.
+let MULTI_CLICK_MS = 500
+let MULTI_CLICK_PX = 5.0
 
 // MARK: - output
 
@@ -70,10 +77,41 @@ func modNames(_ flags: CGEventFlags) -> Set<String> {
 
 // MARK: - macros
 
+// A key (virtual key code) or a mouse button.
+enum Input: Hashable {
+  case key(Int)
+  case mouse(Int)
+}
+
 struct Press {
-  let key: Int
+  let input: Input
   let at: Int   // ms from the start of the macro
   let hold: Int // ms
+  let point: CGPoint? // a click at this spot; nil: where the mouse is
+
+  init(input: Input, at: Int, hold: Int, point: CGPoint? = nil) {
+    self.input = input; self.at = at; self.hold = hold; self.point = point
+  }
+  init(key: Int, at: Int, hold: Int) { self.init(input: .key(key), at: at, hold: hold) }
+
+  init?(_ p: [String: Any]) {
+    guard let at = p["at"] as? Int, let hold = p["hold"] as? Int else { return nil }
+    if let key = p["key"] as? Int {
+      input = .key(key)
+      point = nil
+    } else if let button = p["button"] as? Int, (0...MAX_BUTTON).contains(button) {
+      input = .mouse(button)
+      if p["fixed"] as? Bool == true, let x = (p["x"] as? NSNumber)?.doubleValue, let y = (p["y"] as? NSNumber)?.doubleValue {
+        point = CGPoint(x: x, y: y)
+      } else {
+        point = nil
+      }
+    } else {
+      return nil
+    }
+    self.at = max(0, at)
+    self.hold = max(1, hold)
+  }
 }
 
 struct Macro {
@@ -89,10 +127,7 @@ struct Macro {
     self.id = id
     mods = Set((obj["mods"] as? [String] ?? []).filter { MOD_MASKS[$0] != nil })
     keys = Set((obj["keys"] as? [Int] ?? []).filter { MODIFIER_KEYS[$0] == nil })
-    presses = (obj["presses"] as? [[String: Any]] ?? []).compactMap { p in
-      guard let key = p["key"] as? Int, let at = p["at"] as? Int, let hold = p["hold"] as? Int else { return nil }
-      return Press(key: key, at: max(0, at), hold: max(1, hold))
-    }
+    presses = (obj["presses"] as? [[String: Any]] ?? []).compactMap(Press.init)
     let repeatObj = obj["repeat"] as? [String: Any] ?? [:]
     mode = repeatObj["mode"] as? String ?? "once"
     times = max(1, repeatObj["times"] as? Int ?? 1)
@@ -103,20 +138,21 @@ struct Macro {
   }
 }
 
-// One key going down or up, `t` ms into a round of the macro.
+// One key or button going down or up, `t` ms into a round of the macro.
 struct Step {
   let t: Int
-  let key: Int
+  let input: Input
+  let point: CGPoint?
   let down: Bool
 }
 
-// The presses as a time-ordered list of key events. At the same moment a key
-// is released before another goes down.
+// The presses as a time-ordered list of events. At the same moment a key is
+// released before another goes down.
 func timeline(_ presses: [Press]) -> [Step] {
   var steps: [(Step, Int)] = []
   for (i, p) in presses.enumerated() {
-    steps.append((Step(t: p.at, key: p.key, down: true), i * 2))
-    steps.append((Step(t: p.at + p.hold, key: p.key, down: false), i * 2 + 1))
+    steps.append((Step(t: p.at, input: p.input, point: p.point, down: true), i * 2))
+    steps.append((Step(t: p.at + p.hold, input: p.input, point: p.point, down: false), i * 2 + 1))
   }
   steps.sort { a, b in
     if a.0.t != b.0.t { return a.0.t < b.0.t }
@@ -158,6 +194,11 @@ final class Player {
   private var finished: DispatchSemaphore?
   private var current: String?
   private let source = CGEventSource(stateID: .privateState)
+  // Held while playing: keys, and buttons with the spot they went down at.
+  private var downKeys = Set<Int>()
+  private var downButtons: [Int: CGPoint?] = [:]
+  // The last click, to count double clicks.
+  private var lastClick: (button: Int, time: DispatchTime, at: CGPoint, count: Int64)?
 
   var playingId: String? {
     lock.lock(); defer { lock.unlock() }
@@ -190,7 +231,9 @@ final class Player {
   private func run(_ macro: Macro, _ delayMs: Int, _ cancel: DispatchSemaphore, _ finished: DispatchSemaphore) {
     emit(["event": "playing", "id": macro.id])
     let steps = timeline(macro.presses)
-    var downKeys = Set<Int>()
+    downKeys.removeAll()
+    downButtons.removeAll()
+    lastClick = nil
     var canceled = delayMs > 0 && cancel.wait(timeout: .now() + .milliseconds(delayMs)) == .success
     var round = 0
     rounds: while !canceled && !steps.isEmpty {
@@ -200,12 +243,16 @@ final class Player {
           canceled = true
           break rounds
         }
-        post(step.key, step.down, &downKeys)
+        switch step.input {
+        case .key(let key): post(key, step.down)
+        case .mouse(let button): click(button, step.point, step.down)
+        }
       }
       round += 1
       if macro.mode == "once" || (macro.mode == "times" && round >= macro.times) { break }
     }
-    for key in downKeys { post(key, false, &downKeys) }
+    for (button, point) in downButtons { click(button, point, false) }
+    for key in downKeys { post(key, false) }
 
     lock.lock()
     if self.cancel === cancel { self.cancel = nil; self.finished = nil; current = nil }
@@ -223,22 +270,67 @@ final class Player {
     return true
   }
 
-  private func post(_ key: Int, _ down: Bool, _ downKeys: inout Set<Int>) {
-    if DRY_RUN {
-      if down { downKeys.insert(key) } else { downKeys.remove(key) }
-      emit(["event": "dry", "key": key, "down": down, "t": Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000])
-      return
-    }
-    guard let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(key), keyDown: down) else { return }
-    if down { downKeys.insert(key) } else { downKeys.remove(key) }
+  // The modifiers the macro holds right now.
+  private var heldFlags: CGEventFlags {
     var flags: CGEventFlags = []
     for k in downKeys {
       guard let (name, bit) = MODIFIER_KEYS[k], let mask = MOD_MASKS[name] else { continue }
       flags.insert(mask)
       flags.insert(CGEventFlags(rawValue: bit))
     }
+    return flags
+  }
+
+  private func post(_ key: Int, _ down: Bool) {
+    if down { downKeys.insert(key) } else { downKeys.remove(key) }
+    if DRY_RUN {
+      emit(["event": "dry", "key": key, "down": down, "t": Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000])
+      return
+    }
+    guard let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(key), keyDown: down) else { return }
     if MODIFIER_KEYS[key] != nil { event.type = .flagsChanged }
-    event.flags = flags
+    event.flags = heldFlags
+    event.setIntegerValueField(.eventSourceUserData, value: SYNTHETIC)
+    event.post(tap: .cghidEventTap)
+  }
+
+  // A mouse button at `point`, or where the mouse is when there is none. A
+  // click at a spot moves the mouse there, as a real one would have.
+  private func click(_ button: Int, _ point: CGPoint?, _ down: Bool) {
+    let now = DispatchTime.now()
+    let at = point ?? CGEvent(source: nil)?.location ?? .zero
+    if down { downButtons[button] = point } else { downButtons.removeValue(forKey: button) }
+    var count: Int64 = 1
+    if down {
+      if let last = lastClick, last.button == button,
+        now.uptimeNanoseconds - last.time.uptimeNanoseconds < UInt64(MULTI_CLICK_MS) * 1_000_000,
+        abs(last.at.x - at.x) <= MULTI_CLICK_PX, abs(last.at.y - at.y) <= MULTI_CLICK_PX {
+        count = last.count + 1
+      }
+      lastClick = (button, now, at, count)
+    } else if let last = lastClick, last.button == button {
+      count = last.count
+      lastClick = (button, now, at, count) // the next click counts from this release
+    }
+    if DRY_RUN {
+      var obj: [String: Any] = ["event": "dry", "button": button, "down": down, "count": count,
+        "t": Double(now.uptimeNanoseconds) / 1_000_000]
+      if let p = point { obj["x"] = p.x; obj["y"] = p.y }
+      emit(obj)
+      return
+    }
+    let type: CGEventType
+    switch button {
+    case 0: type = down ? .leftMouseDown : .leftMouseUp
+    case 1: type = down ? .rightMouseDown : .rightMouseUp
+    default: type = down ? .otherMouseDown : .otherMouseUp
+    }
+    guard let mouseButton = CGMouseButton(rawValue: UInt32(button)),
+      let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: at, mouseButton: mouseButton)
+    else { return }
+    event.setIntegerValueField(.mouseEventButtonNumber, value: Int64(button))
+    event.setIntegerValueField(.mouseEventClickState, value: count)
+    event.flags = heldFlags
     event.setIntegerValueField(.eventSourceUserData, value: SYNTHETIC)
     event.post(tap: .cghidEventTap)
   }
@@ -255,6 +347,9 @@ final class Helper {
   var tap: CFMachPort?
   var tapSource: CFRunLoopSource?
   var retryScheduled = false
+  // Watches the mouse buttons while capturing (it only listens).
+  var mouseTap: CFMachPort?
+  var mouseTapSource: CFRunLoopSource?
 
   // Key-downs held back while they may start a shortcut, oldest first.
   var waiting: [(key: Int, event: CGEvent)] = []
@@ -279,6 +374,7 @@ final class Helper {
       flushWaiting()
       armed = nil
       updateTap()
+      updateMouseTap()
     case "play":
       guard let id = msg["id"] as? String, let macro = Macro(msg["macro"] as? [String: Any] ?? [:])
         ?? matcher.macros.first(where: { $0.id == id }) else {
@@ -359,6 +455,31 @@ final class Helper {
     swallowed.removeAll()
     armed = nil
     emit(["event": "tap", "active": false])
+  }
+
+  func updateMouseTap() {
+    if capturing && mouseTap == nil && !DRY_RUN {
+      var mask: UInt64 = 0
+      for t: CGEventType in [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp] {
+        mask |= 1 << t.rawValue
+      }
+      // Without Input Monitoring this fails like the key tap, which reports it.
+      guard let port = CGEvent.tapCreate(
+        tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly,
+        eventsOfInterest: CGEventMask(mask), callback: mouseTapCallback, userInfo: nil)
+      else { return }
+      let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+      CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+      CGEvent.tapEnable(tap: port, enable: true)
+      mouseTap = port
+      mouseTapSource = source
+    } else if !capturing, let port = mouseTap {
+      CGEvent.tapEnable(tap: port, enable: false)
+      CFMachPortInvalidate(port)
+      if let source = mouseTapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+      mouseTap = nil
+      mouseTapSource = nil
+    }
   }
 
   func scheduleTapRetry() {
@@ -453,6 +574,25 @@ final class Helper {
     }
   }
 
+  func handleMouseTap(_ type: CGEventType, _ event: CGEvent) {
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+      if let port = mouseTap { CGEvent.tapEnable(tap: port, enable: true) }
+      return
+    }
+    guard capturing, event.getIntegerValueField(.eventSourceUserData) != SYNTHETIC else { return }
+    let down: Bool
+    switch type {
+    case .leftMouseDown, .rightMouseDown, .otherMouseDown: down = true
+    case .leftMouseUp, .rightMouseUp, .otherMouseUp: down = false
+    default: return
+    }
+    let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
+    guard button <= MAX_BUTTON else { return }
+    let p = event.location
+    emit(["event": "mouse", "button": button, "down": down, "x": p.x, "y": p.y,
+      "t": Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000])
+  }
+
   // The macro of a pressed shortcut starts when its keys and modifiers are
   // up, so they don't mix with the keys the macro presses.
   func startArmedIfReleased(_ flags: CGEventFlags) {
@@ -482,6 +622,11 @@ final class Helper {
 
 let tapCallback: CGEventTapCallBack = { _, type, event, _ in
   Helper.shared.handleTap(type, event)
+}
+
+let mouseTapCallback: CGEventTapCallBack = { _, type, event, _ in
+  Helper.shared.handleMouseTap(type, event)
+  return Unmanaged.passUnretained(event)
 }
 
 // MARK: - key names
@@ -560,8 +705,12 @@ func selftest() -> Bool {
   let expected = [(0, 126, true), (2000, 126, false), (2000, 123, true), (2200, 123, false), (2200, 126, true), (12200, 126, false)]
   check(steps.count == expected.count, "timeline length")
   for (s, e) in zip(steps, expected) {
-    check(s.t == e.0 && s.key == e.1 && s.down == e.2, "timeline step \(e)")
+    check(s.t == e.0 && s.input == .key(e.1) && s.down == e.2, "timeline step \(e)")
   }
+  let left = Press(["button": 0, "at": 100, "hold": 50, "x": 812, "y": 430.5, "fixed": true])
+  check(left?.input == .mouse(0) && left?.point == CGPoint(x: 812, y: 430.5), "click at a spot")
+  check(Press(["button": 1, "at": 0, "hold": 50, "x": 1, "y": 2])?.point == nil, "click where the mouse is")
+  check(Press(["button": 9, "at": 0, "hold": 50]) == nil, "unknown button")
   print(ok ? "selftest ok" : "selftest failed")
   return ok
 }

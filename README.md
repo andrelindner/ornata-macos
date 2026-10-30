@@ -62,8 +62,8 @@ can paint any key any color.
   **Off**, **Brightness** (0–100) and **DPI** with presets. The mouse only shows
   up in the sidebar while a supported mouse is connected; the app checks again
   when the window gets focus and every 15 seconds.
-- **Macros**: record key presses with their timing and play them with a
-  shortcut such as Ctrl+F+G, see [Macros](#macros).
+- **Macros**: record key presses and mouse clicks with their timing and play
+  them with a shortcut such as Ctrl+F+G, see [Macros](#macros).
 - **Settings window** (⌘, or **Settings** in the sidebar) with the tabs *General*,
   *Backup* and *iCloud*, see [Settings](#settings).
 - **Backup and restore** of profiles and settings to any folder, including a
@@ -166,15 +166,23 @@ Mac. So Ornata Lighting plays them.
 - **Several macros**, each with its own **shortcut**: one to three keys plus
   Ctrl, Alt, Shift or Cmd, for example Ctrl+F+G. Add them with the **+** next to
   *Macros* in the sidebar.
-- **Record**: press **Record**, then the keys, here or in any other app. When
-  each key goes down and how long it stays down is measured, starting with the
-  first key. Keys held at the same time stay overlapped.
-- **Edit** every key afterwards: the key, when it starts and how long it is held,
-  or **Add key** to build a macro by hand. For example ↑ held 2 s, then ← 0.2 s,
-  then ↑ 10 s. A bar per key shows the timeline.
+- **Record**: press **Record**, then the keys and mouse clicks, in any other
+  app. When each key or button goes down and how long it stays down is
+  measured, starting with the first one. Keys held at the same time stay
+  overlapped. Clicks into Ornata Lighting's own windows (Record, Stop) aren't
+  recorded, and neither is mouse movement. **Stop** or the macro's own shortcut
+  ends the recording; the shortcut's keys aren't recorded.
+- **Clicks** (left, right, middle and the two side buttons) play **where the
+  mouse is** at that moment, or — click one in the list to switch — **at the
+  spot** where it was recorded; that moves the mouse there. Quick clicks in a row
+  play as a double click.
+- **Edit** every key and click afterwards: the key or button, when it starts and
+  how long it is held, or **Add key** / **Add click** to build a macro by hand.
+  For example ↑ held 2 s, then ← 0.2 s, then ↑ 10 s. A bar per key or click shows
+  the timeline.
 - **Playback**: once, a number of times, or repeated until you press the
   shortcut again. The macro starts when you let go of the shortcut; pressing the
-  shortcut again stops it early and lets go of every key it holds. **Test in 3 s**
+  shortcut again stops it early and lets go of every key and button it holds. **Test in 3 s**
   plays it without the shortcut.
 - Keys you already hold, like W for walking, don't get in the way of a shortcut.
   The first key of a shortcut waits up to 0.3 s for the rest of it; if they don't
@@ -185,12 +193,13 @@ Mac. So Ornata Lighting plays them.
   settings.
 
 **Permissions.** macOS asks once for *Input Monitoring* (to notice the shortcuts
-and record keys) and *Accessibility* (to press the keys). The macro view shows
+and record keys and clicks) and *Accessibility* (to press the keys and click). The macro view shows
 what is missing, with buttons to ask macOS and to open both lists in System
 Settings. The app isn't signed, so macOS may ask again after an update.
 
-The keys a macro presses are synthetic key events. Most apps and games take them
-like real keys; a game that reads the keyboard hardware directly ignores them.
+The keys and clicks of a macro are synthetic events. Most apps and games take
+them like real ones; a game that reads the keyboard or mouse hardware directly
+ignores them.
 Many online games don't allow macros in their terms.
 
 ## Backup

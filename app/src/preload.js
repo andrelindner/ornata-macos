@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('ornata', {
   // Another keyboard layout was picked in the settings.
   onLayoutChanged: (cb) => ipcRenderer.on('layout-changed', () => cb()),
 
-  // A native menu at the mouse: [{ id, label, enabled } | { type: 'separator' }]
+  // A native menu at the mouse: [{ id, label, enabled, checked } | { type: 'separator' }]
   // -> the chosen id, or null.
   popupMenu: (items) => ipcRenderer.invoke('popupMenu', items),
 
@@ -66,7 +66,8 @@ contextBridge.exposeInMainWorld('ornata', {
     // Asks for confirmation first.
     delete: (id) => ipcRenderer.invoke('macros:delete', id),
     setEnabled: (on) => ipcRenderer.invoke('macros:setEnabled', on),
-    // While on, every key arrives at onKey and no shortcut fires.
+    // While on, every key arrives at onKey, every click outside this app's
+    // windows at onMouse, and no shortcut fires.
     capture: (on) => ipcRenderer.invoke('macros:capture', on),
     // Plays a macro (also an unsaved one) after delayMs.
     play: (macro, delayMs) => ipcRenderer.invoke('macros:play', macro, delayMs),
@@ -79,6 +80,8 @@ contextBridge.exposeInMainWorld('ornata', {
     onStatus: (cb) => ipcRenderer.on('macros-status', (_e, s) => cb(s)),
     // { key, down, t (ms), mods }
     onKey: (cb) => ipcRenderer.on('macros-key', (_e, k) => cb(k)),
+    // { button, down, t (ms), x, y }
+    onMouse: (cb) => ipcRenderer.on('macros-mouse', (_e, c) => cb(c)),
     // { keyCode: name } for the current keyboard layout
     onKeyNames: (cb) => ipcRenderer.on('macros-keynames', (_e, n) => cb(n)),
     // Switched on/off from the tray, or restored from a backup.

@@ -13,7 +13,7 @@ const mac = {
   status: {},        // { helper, tap, inputMonitoring, accessibility, playing, error }
   keyNames: {},      // keyCode -> cap
   current: null,     // id of the macro the editor shows
-  capture: null,     // what the keys are for: { kind: "record"|"shortcut"|"key", … }
+  capture: null,     // what the keys (and clicks) are for: { kind: "record"|"shortcut"|"key", … }
   countdown: null,   // timer of "Test in 3 s"
 };
 
@@ -23,9 +23,23 @@ const SAVE_DELAY_MS = 400;
 // Modifier key codes (macOS virtual key codes), as in src/macros.js.
 const MODIFIER_KEYS = new Set([54, 55, 56, 57, 58, 59, 60, 61, 62, 63]);
 const MOD_LABELS = { ctrl: "Ctrl", alt: "Alt", shift: "Shift", cmd: "Cmd" };
+// The modifier key codes behind each modifier of a shortcut.
+const MOD_KEYS = { ctrl: [59, 62], alt: [58, 61], shift: [56, 60], cmd: [55, 54] };
+const BUTTON_NAMES = ["Left click", "Right click", "Middle click", "Button 4", "Button 5"];
 const ESC = 53;
 
 const keyName = (code) => mac.keyNames[code] || `Key ${code}`;
+const isClick = (p) => "button" in p;
+const pressName = (p) => (isClick(p) ? BUTTON_NAMES[p.button] || `Button ${p.button + 1}` : keyName(p.key));
+const whereText = (p) => (p.fixed ? `at ${p.x}, ${p.y}` : "where the mouse is");
+function countText(presses) {
+  const clicks = presses.filter(isClick).length;
+  const keys = presses.length - clicks;
+  const parts = [];
+  if (keys || !clicks) parts.push(keys === 1 ? "1 key" : `${keys} keys`);
+  if (clicks) parts.push(clicks === 1 ? "1 click" : `${clicks} clicks`);
+  return parts.join(", ");
+}
 const seconds = (ms) => (ms / 1000).toFixed(2);
 const currentMacro = () => mac.list.find((m) => m.id === mac.current) || null;
 const macroLength = (m) => m.presses.reduce((end, p) => Math.max(end, p.at + p.hold), 0);
@@ -73,7 +87,7 @@ function renderMacroEditor() {
 
   const playing = mac.status.playing === m.id;
   const parts = [m.shortcut ? shortcutText(m.shortcut) : "No shortcut"];
-  parts.push(m.presses.length === 1 ? "1 key" : `${m.presses.length} keys`);
+  parts.push(countText(m.presses));
   if (m.presses.length) parts.push(`${seconds(macroLength(m))} s`);
   if (playing) parts.push("Playing");
   const line = $("#macroState");
@@ -131,6 +145,7 @@ function renderPresses(m) {
   rec.textContent = recording ? "Stop" : "Record";
   rec.classList.toggle("on", recording);
   $("#addPress").textContent = mac.capture && mac.capture.kind === "key" && mac.capture.index === -1 ? "Press a key… (Esc cancels)" : "Add key";
+  $("#addClick").disabled = recording;
   $("#macroLength").textContent = recording
     ? `${mac.capture.presses.length} recorded`
     : (m.presses.length ? `${seconds(macroLength(m))} s in all` : "");
@@ -139,7 +154,7 @@ function renderPresses(m) {
   list.hidden = !presses.length;
   if (!presses.length) { list.replaceChildren(); return; }
   const total = Math.max(1, macroLength({ presses }));
-  const cells = ["Key", "Starts at (s)", "Held for (s)", "", ""].map((t) => {
+  const cells = ["Key or click", "Starts at (s)", "Held for (s)", "", ""].map((t) => {
     const h = document.createElement("span");
     h.className = "head";
     h.textContent = t;
@@ -152,8 +167,17 @@ function renderPresses(m) {
     key.dataset.index = i;
     const waiting = mac.capture && mac.capture.kind === "key" && mac.capture.index === i;
     key.classList.toggle("waiting", waiting);
-    key.textContent = waiting ? "Press a key…" : keyName(p.key);
-    key.title = "Click, then press another key";
+    if (isClick(p)) {
+      key.classList.add("click");
+      const where = document.createElement("span");
+      where.className = "where";
+      where.textContent = whereText(p);
+      key.append(pressName(p), where);
+      key.title = "Choose the button and where it clicks";
+    } else {
+      key.textContent = waiting ? "Press a key…" : keyName(p.key);
+      key.title = "Click, then press another key";
+    }
     key.disabled = recording;
 
     const at = numberInput(p.at, i, "at", recording);
@@ -164,14 +188,15 @@ function renderPresses(m) {
     const bar = document.createElement("i");
     bar.style.left = `${(p.at / total) * 100}%`;
     bar.style.width = `${(p.hold / total) * 100}%`;
+    if (isClick(p)) bar.className = "click";
     track.appendChild(bar);
 
     const del = document.createElement("button");
     del.type = "button";
     del.className = "icon-btn small del";
     del.dataset.index = i;
-    del.title = "Remove this key";
-    del.setAttribute("aria-label", `Remove ${keyName(p.key)}`);
+    del.title = isClick(p) ? "Remove this click" : "Remove this key";
+    del.setAttribute("aria-label", `Remove ${pressName(p)}`);
     del.textContent = "×";
     del.disabled = recording;
     cells.push(key, at, hold, track, del);
@@ -204,8 +229,8 @@ function renderBanner() {
     parts.push(buttons([["Turn On", () => setMacrosEnabled(true)]]));
   } else if (s.inputMonitoring === false || s.accessibility === false) {
     parts.push(text("macOS has to allow two things before macros can run:"));
-    parts.push(permission(s.inputMonitoring, "Input Monitoring", "notices the shortcut and records keys."));
-    parts.push(permission(s.accessibility, "Accessibility", "presses the keys of a macro."));
+    parts.push(permission(s.inputMonitoring, "Input Monitoring", "notices the shortcut and records keys and clicks."));
+    parts.push(permission(s.accessibility, "Accessibility", "presses the keys and clicks of a macro."));
     parts.push(buttons([
       ["Ask macOS", () => api.macros.requestAccess()],
       ["Open Input Monitoring", () => api.macros.openPrivacy("input")],
@@ -370,34 +395,73 @@ function onMacroKey(k) {
   else if (cap.kind === "key") singleKey(cap, k);
 }
 
-// Times are relative to the first key going down. A key let go that went down
-// before the recording started is ignored; one still down at the end is held
-// until the last key event.
-function recordKey(cap, k) {
-  if (k.down) {
-    if (cap.base === null) cap.base = k.t;
-    if (!cap.downAt.has(k.key)) cap.downAt.set(k.key, k.t);
-  } else if (cap.downAt.has(k.key)) {
-    const start = cap.downAt.get(k.key);
-    cap.downAt.delete(k.key);
-    cap.presses.push({ key: k.key, at: Math.round(start - cap.base), hold: Math.max(10, Math.round(k.t - start)) });
-    cap.presses.sort((a, b) => a.at - b.at);
-  }
-  cap.lastT = k.t;
+// Clicks outside this app's windows; only a recording takes them.
+function onMacroMouse(c) {
+  const cap = mac.capture;
+  if (!cap || cap.kind !== "record") return;
+  recordEvent(cap, `b${c.button}`, c.down, c.t, { button: c.button, x: Math.round(c.x), y: Math.round(c.y), fixed: false });
   renderMacros();
 }
 
-function finishRecording() {
+// Times are relative to the first key or button going down. One let go that
+// went down before the recording started is ignored; one still down at the end
+// is held until the last event. `id` tells the keys and buttons apart.
+function recordEvent(cap, id, down, t, press) {
+  if (down) {
+    if (cap.base === null) cap.base = t;
+    if (!cap.downAt.has(id)) cap.downAt.set(id, { t, press });
+  } else if (cap.downAt.has(id)) {
+    const start = cap.downAt.get(id);
+    cap.downAt.delete(id);
+    cap.presses.push(recorded(cap, start, t));
+    cap.presses.sort((a, b) => a.at - b.at);
+  }
+  cap.lastT = t;
+}
+
+const recorded = (cap, start, end) => ({
+  ...start.press,
+  at: Math.round(start.t - cap.base),
+  hold: Math.max(10, Math.round(end - start.t)),
+});
+
+function recordKey(cap, k) {
+  recordEvent(cap, `k${k.key}`, k.down, k.t, { key: k.key });
+  if (endsRecording(cap, k)) { finishRecording(true); return; }
+  renderMacros();
+}
+
+// The macro's own shortcut, pressed while recording, ends the recording.
+function endsRecording(cap, k) {
+  const s = cap.stopWith;
+  if (!s || !k.down || !s.keys.includes(k.key)) return false;
+  if (!s.keys.every((key) => cap.downAt.has(`k${key}`))) return false;
+  return s.mods.length === k.mods.length && s.mods.every((m) => k.mods.includes(m));
+}
+
+// byShortcut: the keys of the shortcut aren't part of the macro, and it ends
+// where the shortcut began.
+function finishRecording(byShortcut = false) {
   const cap = mac.capture;
   if (!cap || cap.kind !== "record") return;
-  for (const [key, start] of cap.downAt) {
-    cap.presses.push({ key, at: Math.round(start - cap.base), hold: Math.max(10, Math.round(cap.lastT - start)) });
+  if (byShortcut) {
+    const ids = [...cap.stopWith.keys, ...cap.stopWith.mods.flatMap((m) => MOD_KEYS[m])].map((key) => `k${key}`);
+    for (const id of ids) {
+      const start = cap.downAt.get(id);
+      if (!start) continue;
+      cap.downAt.delete(id);
+      cap.lastT = Math.min(cap.lastT, start.t);
+    }
   }
+  for (const start of cap.downAt.values()) cap.presses.push(recorded(cap, start, cap.lastT));
   const presses = cap.presses.sort((a, b) => a.at - b.at);
+  // The first key or click starts the macro.
+  const first = presses.length ? presses[0].at : 0;
+  for (const p of presses) p.at -= first;
   stopCapture();
-  if (!presses.length) { toast("No keys recorded"); return; }
+  if (!presses.length) { toast("Nothing recorded"); return; }
   updateMacro((m) => { m.presses = presses; });
-  toast(`Recorded ${presses.length === 1 ? "1 key" : presses.length + " keys"} · ${seconds(macroLength({ presses }))} s`);
+  toast(`Recorded ${countText(presses)} · ${seconds(macroLength({ presses }))} s`);
 }
 
 // The shortcut is the largest set of keys held at once; it's done when all
@@ -431,6 +495,31 @@ function singleKey(cap, k) {
   updateMacro((m) => {
     if (cap.index >= 0 && m.presses[cap.index]) m.presses[cap.index].key = k.key;
     else m.presses.push({ key: k.key, at: macroLength(m), hold: NEW_PRESS_HOLD_MS });
+  });
+}
+
+// The button of a click and where it clicks.
+async function clickMenu(i) {
+  const p = currentMacro() && currentMacro().presses[i];
+  if (!p || !isClick(p)) return;
+  const hasSpot = "x" in p;
+  const choice = await api.popupMenu([
+    ...BUTTON_NAMES.map((label, b) => ({ id: `button${b}`, label, checked: p.button === b })),
+    { type: "separator" },
+    { id: "mouse", label: "Where the mouse is", checked: !p.fixed },
+    {
+      id: "fixed",
+      label: hasSpot ? `At ${p.x}, ${p.y}, where it was recorded` : "At the recorded spot (only for recorded clicks)",
+      checked: !!p.fixed,
+      enabled: hasSpot,
+    },
+  ]);
+  if (!choice) return;
+  updateMacro((m) => {
+    const q = m.presses[i];
+    if (!q || !isClick(q)) return;
+    if (choice.startsWith("button")) q.button = Number(choice.slice(6));
+    else q.fixed = choice === "fixed" && hasSpot;
   });
 }
 
@@ -468,6 +557,7 @@ async function initMacros() {
   api.macros.onKeyNames((names) => { mac.keyNames = names; renderMacros(); });
   api.macros.onChanged((s) => applyMacroState(s));
   api.macros.onKey(onMacroKey);
+  api.macros.onMouse(onMacroMouse);
 
   // While the keys go to a macro, they don't scroll or click in this window.
   window.addEventListener("keydown", (e) => { if (mac.capture) e.preventDefault(); }, true);
@@ -506,14 +596,22 @@ async function initMacros() {
 
   $("#recordBtn").onclick = () => (mac.capture && mac.capture.kind === "record"
     ? finishRecording()
-    : startCapture({ kind: "record", base: null, lastT: 0, downAt: new Map(), presses: [] }));
+    : startCapture({
+      kind: "record", base: null, lastT: 0, downAt: new Map(), presses: [],
+      stopWith: currentMacro() && currentMacro().shortcut,
+    }));
   $("#addPress").onclick = () => (mac.capture && mac.capture.kind === "key"
     ? stopCapture()
     : startCapture({ kind: "key", index: -1 }));
+  $("#addClick").onclick = () => {
+    stopCapture();
+    updateMacro((m) => { m.presses.push({ button: 0, at: macroLength(m), hold: NEW_PRESS_HOLD_MS, fixed: false }); });
+  };
 
   const presses = $("#pressList");
   presses.onclick = (e) => {
     const key = e.target.closest(".keybtn");
+    if (key && key.classList.contains("click")) { clickMenu(Number(key.dataset.index)); return; }
     if (key) { startCapture({ kind: "key", index: Number(key.dataset.index) }); return; }
     const del = e.target.closest(".del");
     if (del) updateMacro((m) => { m.presses.splice(Number(del.dataset.index), 1); });

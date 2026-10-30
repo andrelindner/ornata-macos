@@ -1,15 +1,19 @@
 'use strict';
 
-// ornata-macos — macros: shortcuts that play recorded key presses.
+// ornata-macos — macros: shortcuts that play recorded key presses and clicks.
 // Copyright (C) 2025 André Lindner. GNU General Public License v2.0 or later.
 //
 // The macros live in settings.json (config.macros), so a backup carries them
 // with the settings. The native helper (native/ornata-keys.swift) watches the
-// keyboard and presses the keys; this module keeps it running while it is
-// needed and relays between it and the window.
+// keyboard and presses the keys and buttons; this module keeps it running
+// while it is needed and relays between it and the window.
 //
 // A macro: { id, name, shortcut: { mods: ['ctrl', …], keys: [keyCode, …] } | null,
-//            presses: [{ key, at, hold }], repeat: { mode: 'once'|'times'|'loop', times } }
+//            presses: [press, …], repeat: { mode: 'once'|'times'|'loop', times } }
+// A press: { key, at, hold } or a click { button, at, hold, x, y, fixed }
+//   button  0 left, 1 right, 2 middle, 3/4 side buttons
+//   x, y    where it was recorded (screen points); left out for added clicks
+//   fixed   true: click there; false: where the mouse is at that moment
 // Key codes are macOS virtual key codes, times are milliseconds.
 
 const { spawn } = require('child_process');
@@ -26,9 +30,13 @@ const MAX_MS = 60 * 60 * 1000;
 const MAX_SHORTCUT_KEYS = 3;
 const MAX_TIMES = 999;
 const MIN_HOLD_MS = 10;
+const MAX_BUTTON = 4;
+const MAX_COORD = 100000;
 const RESTART_DELAY_MS = 3000;
 
 const isKey = (v) => Number.isInteger(v) && v >= 0 && v < 128;
+const isButton = (v) => Number.isInteger(v) && v >= 0 && v <= MAX_BUTTON;
+const isCoord = (v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_COORD;
 const clampMs = (v, min) => Math.min(MAX_MS, Math.max(min, Math.round(Number(v) || 0)));
 
 function newId() {
@@ -44,12 +52,27 @@ function normalizeShortcut(s) {
   return { mods, keys };
 }
 
+function normalizePress(p) {
+  if (!p || typeof p !== 'object') return null;
+  const at = clampMs(p.at, 0);
+  const hold = clampMs(p.hold, MIN_HOLD_MS);
+  if (isKey(p.key)) return { key: p.key, at, hold };
+  if (!isButton(p.button)) return null;
+  const click = { button: p.button, at, hold };
+  if (isCoord(p.x) && isCoord(p.y)) {
+    click.x = Math.round(p.x);
+    click.y = Math.round(p.y);
+  }
+  click.fixed = p.fixed === true && 'x' in click;
+  return click;
+}
+
 function normalizeMacro(m) {
   if (!m || typeof m !== 'object') return null;
   const presses = (Array.isArray(m.presses) ? m.presses : [])
-    .filter((p) => p && isKey(p.key))
+    .map(normalizePress)
+    .filter(Boolean)
     .slice(0, MAX_PRESSES)
-    .map((p) => ({ key: p.key, at: clampMs(p.at, 0), hold: clampMs(p.hold, MIN_HOLD_MS) }))
     .sort((a, b) => a.at - b.at);
   const r = m.repeat && typeof m.repeat === 'object' ? m.repeat : {};
   const mode = ['once', 'times', 'loop'].includes(r.mode) ? r.mode : 'once';
@@ -93,14 +116,16 @@ function helperMacro(m) {
   };
 }
 
-// opts: { binPath, args, config, saveConfig, onChange, send(channel, payload) }
+// opts: { binPath, args, config, saveConfig, onChange, send(channel, payload), ownBounds }
 //   args        extra helper arguments (a dev run passes --dry-run)
 //   config      the app's settings object (macros, macrosEnabled live there)
 //   saveConfig  persists it (and schedules the backup)
 //   onChange    the macros or the on/off state changed (tray menu)
 //   send        message to the main window
+//   ownBounds   the app's visible windows, [{ x, y, width, height }] in screen
+//               points: clicks there (Record, Stop) aren't recorded
 function createMacros(opts) {
-  const { binPath, saveConfig, onChange, send } = opts;
+  const { binPath, saveConfig, onChange, send, ownBounds } = opts;
   const args = opts.args || [];
   const config = () => opts.config();
   let proc = null;
@@ -115,6 +140,8 @@ function createMacros(opts) {
     error: null,
   };
   let keyNames = {};
+  // Buttons that went down in the app's own windows: their release is skipped too.
+  const ownClicks = new Set();
 
   const macros = () => config().macros;
   const enabled = () => config().macrosEnabled !== false;
@@ -222,6 +249,19 @@ function createMacros(opts) {
       case 'key':
         send('macros-key', { key: evt.key, down: !!evt.down, t: evt.t, mods: evt.mods || [] });
         break;
+      case 'mouse': {
+        const click = { button: evt.button, down: !!evt.down, t: evt.t, x: evt.x, y: evt.y };
+        if (click.down) {
+          const inApp = ownBounds().some((b) => click.x >= b.x && click.x < b.x + b.width
+            && click.y >= b.y && click.y < b.y + b.height);
+          if (inApp) { ownClicks.add(click.button); break; }
+          ownClicks.delete(click.button);
+        } else if (ownClicks.delete(click.button)) {
+          break;
+        }
+        send('macros-mouse', click);
+        break;
+      }
       case 'error':
         status.error = evt.message;
         pushStatus();
@@ -276,9 +316,10 @@ function createMacros(opts) {
       return state();
     });
 
-    // Recording and shortcut entry: every key goes to the window.
+    // Recording and shortcut entry: every key (and click) goes to the window.
     ipcMain.handle('macros:capture', (_e, on) => {
       windowWantsHelper = true;
+      ownClicks.clear();
       sync();
       write({ cmd: 'capture', on: !!on });
       return { ...status };
@@ -286,7 +327,7 @@ function createMacros(opts) {
 
     ipcMain.handle('macros:play', (_e, raw, delayMs) => {
       const m = normalizeMacro(raw);
-      if (!m || !m.presses.length) return { ok: false, error: 'The macro has no keys yet.' };
+      if (!m || !m.presses.length) return { ok: false, error: 'The macro has no keys or clicks yet.' };
       windowWantsHelper = true;
       sync();
       write({ cmd: 'play', id: m.id, macro: helperMacro(m), delay: clampMs(delayMs, 0) });

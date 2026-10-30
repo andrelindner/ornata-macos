@@ -362,7 +362,12 @@ function registerIpc() {
     const menu = Menu.buildFromTemplate((Array.isArray(items) ? items : []).map((it) => (
       it.type === 'separator'
         ? { type: 'separator' }
-        : { label: String(it.label), enabled: it.enabled !== false, click: () => resolve(it.id) })));
+        : {
+          label: String(it.label),
+          enabled: it.enabled !== false,
+          ...(typeof it.checked === 'boolean' ? { type: 'checkbox', checked: it.checked } : {}),
+          click: () => resolve(it.id),
+        })));
     // The menu closes before the click handler runs; give the click a moment.
     menu.popup({ window: BrowserWindow.fromWebContents(e.sender), callback: () => setTimeout(() => resolve(null), 100) });
   }));
@@ -559,6 +564,9 @@ function setupMacros() {
     send: (channel, payload) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
     },
+    ownBounds: () => BrowserWindow.getAllWindows()
+      .filter((w) => !w.isDestroyed() && w.isVisible() && !w.isMinimized())
+      .map((w) => w.getBounds()),
   });
 }
 

@@ -178,12 +178,15 @@
   .presses .head { font-size: 12px; color: var(--muted); }
   .presses .keybtn { justify-self: start; max-width: 100%; padding: 4px 10px; border-bottom-width: 2px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .presses .keybtn.waiting { color: var(--accent2); border-color: var(--accent2); }
+  .presses .keybtn.click { display: flex; flex-direction: column; align-items: flex-start; padding: 3px 10px; line-height: 1.25; }
+  .presses .keybtn .where { font-size: 11px; font-weight: 400; color: var(--muted); }
   .presses input[type=number] {
     width: 100%; background: var(--panel2); color: var(--text); border: 1px solid var(--line);
     border-radius: 8px; padding: 6px 8px; font-family: inherit; font-size: 13px; font-variant-numeric: tabular-nums;
   }
   .presses .track { position: relative; height: 10px; border-radius: 5px; background: #0c0d11; }
   .presses .track i { position: absolute; top: 0; bottom: 0; min-width: 3px; border-radius: 5px; background: var(--accent2); }
+  .presses .track i.click { background: var(--accent); }
   .presses .del { width: 28px; height: 28px; }
   .repeat { display: flex; flex-direction: column; gap: 8px; }
   .repeat label { display: flex; align-items: center; gap: 8px; color: var(--text); }
@@ -378,22 +381,23 @@
               <label><input type="radio" name="repeat" value="times"> <input type="number" id="repeatTimes" min="1" max="999" step="1" value="2" aria-label="How many times"> times</label>
               <label><input type="radio" name="repeat" value="loop"> Repeat until I press the shortcut again</label>
             </div>
-            <p class="note">The shortcut also stops a macro early. Every key the macro holds is let go.</p>
+            <p class="note">The shortcut also stops a macro early. Every key and mouse button the macro holds is let go.</p>
           </section>
         </div>
 
         <section class="card" aria-labelledby="hPresses">
           <div class="card-head">
-            <h2 id="hPresses">Keys</h2>
+            <h2 id="hPresses">Keys and clicks</h2>
             <span class="macro-sub" id="macroLength"></span>
             <div class="actions">
               <button type="button" id="addPress" title="Adds a key after the last one">Add key</button>
+              <button type="button" id="addClick" title="Adds a left click after the last key or click">Add click</button>
               <button type="button" class="record" id="recordBtn">Record</button>
             </div>
           </div>
-          <p class="note" id="recordHint" hidden>Recording — press the keys of the macro, here or in any other app. When each key goes down and how long it stays down is measured, starting with the first key. Click <b>Stop</b> when you’re done.</p>
+          <p class="note" id="recordHint" hidden>Recording — press the keys and click the mouse in any other app. When each key or button goes down and how long it stays down is measured, starting with the first one. Clicks in this window aren’t recorded, mouse movement neither. Click <b>Stop</b> or press the macro’s shortcut when you’re done.</p>
           <div class="presses" id="pressList"></div>
-          <p class="note" id="pressEmpty">No keys yet. Click <b>Record</b> and press them, or add them one by one.</p>
+          <p class="note" id="pressEmpty">No keys or clicks yet. Click <b>Record</b> and press them, or add them one by one. A click plays where the mouse is at that moment, or — click it to switch — at the spot where it was recorded.</p>
         </section>
       </section>
     </div>
