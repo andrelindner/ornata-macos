@@ -58,6 +58,33 @@ contextBridge.exposeInMainWorld('ornata', {
   // -> the chosen id, or null.
   popupMenu: (items) => ipcRenderer.invoke('popupMenu', items),
 
+  // Macros (see src/macros.js). get/save/delete/setEnabled resolve to
+  // { macros, enabled, status, keyNames } (save/delete also { ok, error }).
+  macros: {
+    get: () => ipcRenderer.invoke('macros:get'),
+    save: (macro) => ipcRenderer.invoke('macros:save', macro),
+    // Asks for confirmation first.
+    delete: (id) => ipcRenderer.invoke('macros:delete', id),
+    setEnabled: (on) => ipcRenderer.invoke('macros:setEnabled', on),
+    // While on, every key arrives at onKey and no shortcut fires.
+    capture: (on) => ipcRenderer.invoke('macros:capture', on),
+    // Plays a macro (also an unsaved one) after delayMs.
+    play: (macro, delayMs) => ipcRenderer.invoke('macros:play', macro, delayMs),
+    stop: () => ipcRenderer.invoke('macros:stop'),
+    requestAccess: () => ipcRenderer.invoke('macros:requestAccess'),
+    restartHelper: () => ipcRenderer.invoke('macros:restartHelper'),
+    // which: 'input' (Input Monitoring) or 'accessibility'
+    openPrivacy: (which) => ipcRenderer.invoke('macros:openPrivacy', which),
+    // { helper, tap, inputMonitoring, accessibility, playing, error }
+    onStatus: (cb) => ipcRenderer.on('macros-status', (_e, s) => cb(s)),
+    // { key, down, t (ms), mods }
+    onKey: (cb) => ipcRenderer.on('macros-key', (_e, k) => cb(k)),
+    // { keyCode: name } for the current keyboard layout
+    onKeyNames: (cb) => ipcRenderer.on('macros-keynames', (_e, n) => cb(n)),
+    // Switched on/off from the tray, or restored from a backup.
+    onChanged: (cb) => ipcRenderer.on('macros-changed', (_e, s) => cb(s)),
+  },
+
   // Settings window. Every call that changes something resolves to the new
   // settings state (or { ok, message|error, state }).
   openSettings: (tab) => ipcRenderer.invoke('openSettings', tab),

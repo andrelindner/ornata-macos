@@ -17,7 +17,7 @@ const state = {
   background: "#000000",
   brightness: 100,
   paint: "#44d07b",
-  tab: "keyboard",       // "keyboard" | "mouse"
+  tab: "keyboard",       // "keyboard" | "mouse" | "macro"
   keyboardInfo: null,    // last api.status() result
   mouseInfo: null,       // last api.mouseStatus() result
   profiles: [],          // [{ name: "x.json", colors: ["#hex", …] }] in the profiles folder
@@ -482,6 +482,8 @@ function showTab(tab) {
   $("#devMouse").setAttribute("aria-current", String(tab === "mouse"));
   $("#panelKeyboard").hidden = tab !== "keyboard";
   $("#panelMouse").hidden = tab !== "mouse";
+  $("#panelMacro").hidden = tab !== "macro";
+  macrosTabChanged(tab);
 }
 
 // --- mouse ------------------------------------------------------------------
@@ -547,6 +549,7 @@ async function init() {
   }));
 
   wireControls();
+  initMacros();
 
   const info = await api.appInfo();
   $("#version").textContent = `v${info.version}`;

@@ -7,5 +7,6 @@ node_modules/
 app/dist/
 app/out/
 app/build/
+app/native/bin/
 
 .DS_Store

@@ -62,6 +62,8 @@ can paint any key any color.
   **Off**, **Brightness** (0–100) and **DPI** with presets. The mouse only shows
   up in the sidebar while a supported mouse is connected; the app checks again
   when the window gets focus and every 15 seconds.
+- **Macros**: record key presses with their timing and play them with a
+  shortcut such as Ctrl+F+G, see [Macros](#macros).
 - **Settings window** (⌘, or **Settings** in the sidebar) with the tabs *General*,
   *Backup* and *iCloud*, see [Settings](#settings).
 - **Backup and restore** of profiles and settings to any folder, including a
@@ -73,6 +75,7 @@ can paint any key any color.
   - Show/Hide Window
   - Apply Default Profile
   - Turn Keyboard Off
+  - Run Macros (on/off, once a macro exists)
   - Settings…
   - Quit
 
@@ -153,6 +156,41 @@ Open **Settings…** from the menu-bar (tray) menu, the app menu (⌘,) or
 - A roadmap for a later automatic sync: picking up newer backups from other Macs,
   and a native CloudKit sync, which needs an Apple Developer Program membership
   and a signed app.
+
+## Macros
+
+The Ornata Chroma can't store or run macros itself. On Windows, Razer Synapse
+plays them in software, and the Fn layer (Fn+F9 "M" included) never reaches the
+Mac. So Ornata Lighting plays them.
+
+- **Several macros**, each with its own **shortcut**: one to three keys plus
+  Ctrl, Alt, Shift or Cmd, for example Ctrl+F+G. Add them with the **+** next to
+  *Macros* in the sidebar.
+- **Record**: press **Record**, then the keys, here or in any other app. When
+  each key goes down and how long it stays down is measured, starting with the
+  first key. Keys held at the same time stay overlapped.
+- **Edit** every key afterwards: the key, when it starts and how long it is held,
+  or **Add key** to build a macro by hand. For example ↑ held 2 s, then ← 0.2 s,
+  then ↑ 10 s. A bar per key shows the timeline.
+- **Playback**: once, a number of times, or until stopped. The macro starts when
+  you let go of the shortcut; pressing the shortcut again stops it and lets go of
+  every key it holds. **Test in 3 s** plays it without the shortcut.
+- Keys you already hold, like W for walking, don't get in the way of a shortcut.
+  The first key of a shortcut waits up to 0.3 s for the rest of it; if they don't
+  follow, it goes through as usual.
+- **Run macros** in the window and in the menu-bar menu switches all of them off.
+  Then the app doesn't watch the keyboard at all.
+- The macros are stored in `settings.json` and go into the backup with the
+  settings.
+
+**Permissions.** macOS asks once for *Input Monitoring* (to notice the shortcuts
+and record keys) and *Accessibility* (to press the keys). The macro view shows
+what is missing, with buttons to ask macOS and to open both lists in System
+Settings. The app isn't signed, so macOS may ask again after an update.
+
+The keys a macro presses are synthetic key events. Most apps and games take them
+like real keys; a game that reads the keyboard hardware directly ignores them.
+Many online games don't allow macros in their terms.
 
 ## Backup
 
@@ -256,6 +294,8 @@ Requirements:
 - [Node.js](https://nodejs.org/) 18+ and npm.
 - [razer-macos](https://github.com/stickoking/razer-macos/releases) installed as
   `/Applications/Razer macOS.app`.
+- The Xcode Command Line Tools (`swiftc`) for the macro helper:
+  `xcode-select --install`.
 
 The app needs that app's native addon `addon.node`. The addon is GPL and
 device-specific, so it is **not** committed to this repository. `setup.sh`
@@ -266,13 +306,15 @@ git clone https://github.com/andrelindner/ornata-macos.git
 cd ornata-macos/app
 ./setup.sh            # extracts addon.node from /Applications/Razer macOS.app
 npm install           # electron + electron-builder (dev only)
-npm start             # run the app in development
+npm start             # build the macro helper, run the app in development
 npm run smoke         # headless check: both devices reachable (quit Razer macOS first)
 npm run dist          # build dist/Ornata Lighting-<version>-arm64.dmg and .pkg
 ```
 
 A development run uses its own name (*Ornata Lighting Dev*) and its own settings
-folder. It never touches the installed app's login item.
+folder. It never touches the installed app's login item. Its macro helper runs
+with `--dry-run`: it doesn't watch the keyboard or press keys, so macOS doesn't
+ask the bare Electron for permissions.
 
 After `npm run dist`, the `postdist` script removes the build byproducts, so
 `dist/` holds only the two installers.
@@ -283,13 +325,15 @@ After `npm run dist`, the `postdist` script removes the build byproducts, so
 app/
   src/main.js          main process: IPC, tray, menus, settings, profiles, backup
   src/preload.js       window.ornata.* bridge (contextIsolation on, no Node in the UI)
-  src/renderer/        the main window: sidebar (devices, profiles), keyboard and mouse view
+  src/renderer/        the main window: sidebar (devices, profiles, macros), keyboard, mouse and macro view
+  src/macros.js        macros: storage, and the helper that runs them
   src/settings/        the settings window: General, Backup, iCloud
   src/smoke.js         headless device check
   engine/engine.js     device I/O through addon.node (plain Node, no Electron)
   engine/layout.js     key -> [row, col] map, groups, aliases, key caps and sizes per layout
   engine/scenes.js     reading, listing and writing scene/profile files
   engine/backup.js     backup to a folder, inspect and restore (plain Node)
+  native/ornata-keys.swift  macro helper: shortcuts, recording, playback (CGEvent tap)
   scenes/              bundled scenes (default profile + examples)
   assets/              app icon (generated by make_icon.py)
   setup.sh             extracts addon.node from the installed Razer macOS app
@@ -297,7 +341,8 @@ app/
 
 The native module can't be loaded from inside `app.asar`. For that reason
 `engine/`, `scenes/` and `addon.node` are copied next to it with electron-builder
-`extraResources` (`Contents/Resources/{engine,scenes,addon.node}`).
+`extraResources` (`Contents/Resources/{engine,scenes,addon.node}`), and so is the
+macro helper (`native/bin/ornata-keys`, built by `npm run build:native`).
 
 ### How it works
 

@@ -56,6 +56,7 @@ function migrateLegacySettings() {
 }
 
 const engine = require(corePath('engine', 'engine.js'));
+const { createMacros, normalizeMacros } = require('./macros');
 const { layoutPayload, layoutChoices } = require(corePath('engine', 'layout.js'));
 const scenes = require(corePath('engine', 'scenes.js'));
 const backupStore = require(corePath('engine', 'backup.js'));
@@ -103,10 +104,11 @@ function readDefaultProfile() {
 // lastBackupAt:        ISO time of the last successful backup.
 // keyboardLayout:      'de' or 'us' for the visual keyboard (engine/layout.js);
 //                      null follows the system language.
+// macros:              the macros (see macros.js); macrosEnabled switches all off.
 const DEFAULT_CONFIG = {
   startMinimized: false, applyOnLaunch: true, reapplyOnWake: true, startupColor: null,
   backupDir: null, autoBackup: true, backupRetentionDays: 30, lastBackupAt: null,
-  keyboardLayout: null,
+  keyboardLayout: null, macros: [], macrosEnabled: true,
 };
 let config = { ...DEFAULT_CONFIG };
 
@@ -122,7 +124,9 @@ function validSetting(key, value) {
 }
 // Settings a backup carries. The backup folder is machine-specific, and the
 // startup color describes the keyboard's memory rather than a preference.
+// The macros have their own window and are restored through macros.js.
 const BACKED_UP = Object.keys(EDITABLE);
+const BACKED_UP_MACROS = ['macros', 'macrosEnabled'];
 
 function configPath() {
   return path.join(app.getPath('userData'), 'settings.json');
@@ -131,6 +135,7 @@ function loadConfig() {
   try {
     config = { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(configPath(), 'utf8')) };
   } catch (_) { config = { ...DEFAULT_CONFIG }; }
+  config.macros = normalizeMacros(config.macros);
 }
 function saveConfig() {
   try {
@@ -159,7 +164,7 @@ const ICLOUD_ROOT = path.join(app.getPath('home'), 'Library', 'Mobile Documents'
 function runBackup() {
   const report = backupStore.backup(config.backupDir, {
     profilesDir: profilesDir(),
-    settings: pick(config, BACKED_UP),
+    settings: pick(config, [...BACKED_UP, ...BACKED_UP_MACROS]),
     appVersion: app.getVersion(),
     retentionDays: config.backupRetentionDays,
   });
@@ -363,6 +368,17 @@ function registerIpc() {
   }));
 
   registerSettingsIpc();
+  macros.registerIpc(ipcMain, {
+    confirmDelete: async (name) => (await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      message: `Delete the macro “${name}”?`,
+      detail: 'Its keys and its shortcut are removed.',
+      buttons: ['Delete', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    })).response === 0,
+    openExternal: (url) => shell.openExternal(url),
+  });
 }
 
 // --- settings window IPC ----------------------------------------------------
@@ -502,8 +518,10 @@ function registerSettingsIpc() {
         for (const [k, v] of Object.entries(pick(r.settings, BACKED_UP))) {
           if (validSetting(k, v)) config[k] = v;
         }
+        if (typeof r.settings.macrosEnabled === 'boolean') config.macrosEnabled = r.settings.macrosEnabled;
         saveConfig();
         notifyLayoutChanged();
+        if (Array.isArray(r.settings.macros)) macros.replaceAll(r.settings.macros);
       }
       restoreDir = null;
       if (mainWindow) mainWindow.webContents.send('profiles-changed');
@@ -524,6 +542,24 @@ function setBackupDir(dir) {
   config.backupDir = dir;
   saveConfig();
   scheduleAutoBackup(); // fill the new folder right away
+}
+
+// --- macros -----------------------------------------------------------------
+// Created at startup (see macros.js). A dev run starts the helper with
+// --dry-run, so macOS never asks the bare Electron for keyboard permissions.
+let macros = null;
+
+function setupMacros() {
+  macros = createMacros({
+    binPath: corePath('native', 'bin', 'ornata-keys'),
+    args: app.isPackaged ? [] : ['--dry-run'],
+    config: () => config,
+    saveConfig: () => { saveConfig(); scheduleAutoBackup(); },
+    onChange: () => tray && tray.setContextMenu(buildTrayMenu()),
+    send: (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+    },
+  });
 }
 
 // --- window + tray ----------------------------------------------------------
@@ -758,6 +794,10 @@ function buildTrayMenu() {
     { label: 'Apply Default Profile', click: () => loadDefaultProfile() },
     { label: 'Turn Keyboard Off', click: () => turnKeyboardOff() },
     { type: 'separator' },
+    ...(macros && macros.count() ? [
+      { label: 'Run Macros', type: 'checkbox', checked: macros.enabled(), click: (item) => macros.setEnabled(item.checked) },
+      { type: 'separator' },
+    ] : []),
     { label: 'Settings…', click: () => showSettings() },
     { type: 'separator' },
     { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
@@ -834,6 +874,7 @@ if (!gotLock) {
     migrateLegacySettings();
     loadConfig();
     try { ensureProfilesDir(); } catch (_) { /* falls back to the bundled scenes */ }
+    setupMacros();
     // In dev the bundle icon isn't applied, so set the dock icon from assets.
     if (!app.isPackaged && process.platform === 'darwin' && app.dock) {
       const devIcon = path.join(__dirname, '..', 'assets', 'icon.png');
@@ -871,6 +912,8 @@ if (!gotLock) {
       }
     }
 
+    macros.sync(); // starts the helper when a macro has a shortcut
+
     powerMonitor.on('resume', onWakeOrUnlock);
     powerMonitor.on('unlock-screen', onWakeOrUnlock);
 
@@ -883,5 +926,8 @@ if (!gotLock) {
   // Keep running in the menu bar when all windows are closed.
   app.on('window-all-closed', () => { /* stay alive for the tray */ });
 
-  app.on('before-quit', () => { isQuitting = true; });
+  app.on('before-quit', () => {
+    isQuitting = true;
+    if (macros) macros.stop(); // the helper lets go of its keys
+  });
 }
