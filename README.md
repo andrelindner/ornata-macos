@@ -172,9 +172,10 @@ Mac. So Ornata Lighting plays them.
 - **Edit** every key afterwards: the key, when it starts and how long it is held,
   or **Add key** to build a macro by hand. For example ↑ held 2 s, then ← 0.2 s,
   then ↑ 10 s. A bar per key shows the timeline.
-- **Playback**: once, a number of times, or until stopped. The macro starts when
-  you let go of the shortcut; pressing the shortcut again stops it and lets go of
-  every key it holds. **Test in 3 s** plays it without the shortcut.
+- **Playback**: once, a number of times, or repeated until you press the
+  shortcut again. The macro starts when you let go of the shortcut; pressing the
+  shortcut again stops it early and lets go of every key it holds. **Test in 3 s**
+  plays it without the shortcut.
 - Keys you already hold, like W for walking, don't get in the way of a shortcut.
   The first key of a shortcut waits up to 0.3 s for the rest of it; if they don't
   follow, it goes through as usual.
