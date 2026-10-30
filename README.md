@@ -231,7 +231,7 @@ The **default profile** uses these colors:
 | Function row (F1–F12) | orange `#ff7a00` |
 | Esc, Print Screen, Scroll Lock, Pause and the Insert/Home/Page Up/Delete/End/Page Down cluster | purple `#a24bff` |
 | Arrow keys | blue `#3a7afe` |
-| Number pad and the M1/M2 keys | red `#ff0000` |
+| Number pad | red `#ff0000` |
 
 ## Notes and limitations
 
