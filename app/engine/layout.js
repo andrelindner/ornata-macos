@@ -17,7 +17,9 @@ const KEYS = {
   F5: [0, 7], F6: [0, 8], F7: [0, 9], F8: [0, 10],
   F9: [0, 11], F10: [0, 12], F11: [0, 13], F12: [0, 14],
   PRTSC: [0, 15], SCRLK: [0, 16], PAUSE: [0, 17],
-  M1: [0, 19], M2: [0, 21], // media / extra keys
+  // No key and no LED on the Ornata Chroma (tested); kept so profiles that
+  // name them still load. The board doesn't draw them.
+  M1: [0, 19], M2: [0, 21],
 
   // Row 1 — number row + nav cluster + numpad top
   BACKTICK: [1, 1],
@@ -187,7 +189,6 @@ const FIXED = {
   F5: [6.5, 0], F6: [7.5, 0], F7: [8.5, 0], F8: [9.5, 0],
   F9: [11, 0], F10: [12, 0], F11: [13, 0], F12: [14, 0],
   PRTSC: [NAV_X, 0], SCRLK: [NAV_X + 1, 0], PAUSE: [NAV_X + 2, 0],
-  M1: [PAD_X + 1, 0], M2: [PAD_X + 3, 0],
   INS: [NAV_X, 1], HOME: [NAV_X + 1, 1], PGUP: [NAV_X + 2, 1],
   DEL: [NAV_X, 2], END: [NAV_X + 1, 2], PGDN: [NAV_X + 2, 2],
   UP: [NAV_X + 1, 4], LEFT: [NAV_X, 5], DOWN: [NAV_X + 1, 5], RIGHT: [NAV_X + 2, 5],
