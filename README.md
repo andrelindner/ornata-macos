@@ -134,7 +134,9 @@ Open **Settings…** from the menu-bar (tray) menu, the app menu (⌘,) or
   power. If the keyboard isn't ready yet at login, the app retries in the
   background.
 - **Re-apply profile after wake and unlock** (on by default) re-sends the current
-  profile a few seconds after the Mac wakes from sleep or the screen is unlocked.
+  profile several times during the first half minute after the Mac wakes from
+  sleep or the screen is unlocked. *Apply default profile on launch* sends it
+  the same way after launch, whatever this setting says.
   Single LEDs can come back without their color after sleep, especially behind a
   monitor or KVM USB hub.
 - **Startup color** stores one color in the keyboard's on-board memory. The

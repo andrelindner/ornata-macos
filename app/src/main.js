@@ -684,9 +684,11 @@ function turnKeyboardOff() {
 // The per-key frame only lives in the keyboard's volatile memory. Across sleep
 // (USB suspend) and especially behind a monitor/KVM hub, individual LEDs can
 // come back without their color, so re-send the current profile after wake and
-// unlock. Delayed because USB devices aren't always ready the instant the
-// event fires; retried a few times, silently (no dialogs on the lock screen).
-const REAPPLY_DELAYS_MS = [2000, 5000, 10000];
+// unlock, and after launch, where whole rows have stayed dark. Delayed because
+// USB devices aren't always ready the instant the event fires. A lost row raises
+// no error and the keyboard can't be read back, so every step of the schedule
+// sends, silently (no dialogs on the lock screen).
+const REAPPLY_DELAYS_MS = [2000, 5000, 10000, 15000];
 let reapplyTimer = null;
 function onWakeOrUnlock() {
   if (config.reapplyOnWake) scheduleReapply();
@@ -697,9 +699,8 @@ function scheduleReapply(attempt = 0) {
   reapplyTimer = setTimeout(() => {
     try {
       engine.applySpec(currentScene.scene);
-    } catch (_) {
-      scheduleReapply(attempt + 1);
-    }
+    } catch (_) { /* not ready yet: the next step sends again */ }
+    scheduleReapply(attempt + 1);
   }, REAPPLY_DELAYS_MS[attempt]);
 }
 
@@ -906,7 +907,7 @@ if (!gotLock) {
 
     // Re-apply the default profile so the keyboard lights up without a click.
     // Silent on failure (e.g. device not ready yet at login) — no dialogs at
-    // login; retried in the background instead.
+    // login. Sent again in the background either way, see scheduleReapply().
     if (config.applyOnLaunch) {
       const scene = readDefaultProfile();
       if (scene) {
@@ -914,9 +915,8 @@ if (!gotLock) {
         try {
           engine.applySpec(scene);
           setTrayTitleFlash('Default applied');
-        } catch (_) {
-          scheduleReapply();
-        }
+        } catch (_) { /* the re-sends below take over */ }
+        scheduleReapply();
       }
     }
 
